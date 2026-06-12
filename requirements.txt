@@ -1,0 +1,3 @@
+# Telegram bot framework. The [job-queue] extra pulls in APScheduler, used by the
+# minute polling loop that fires due reminders. Async API (v20+).
+python-telegram-bot[job-queue]==22.7
