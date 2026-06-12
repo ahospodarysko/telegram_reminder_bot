@@ -5,8 +5,9 @@ A Telegram bot for timed reminders. Save a note with a deadline and the bot ping
 The interface is available in **English and Ukrainian** — chosen on `/start` and
 changeable anytime with `/language`.
 
-Example — *"Doctor appointment"* due **21 Jun 16:00** → pings at 20 Jun 16:00,
-21 Jun 04:00, 21 Jun 10:00, and 21 Jun 16:00.
+Example — *"Doctor appointment"* due **21 Jun 16:00** → pings at 20 Jun 16:00 and
+21 Jun 14:00. (If a reminder is created too close to the deadline for those offsets,
+a single at-deadline ping fires instead.)
 
 All times are stored in UTC and shown in your timezone. The bot is button-driven: you
 tap rather than type for almost everything.
