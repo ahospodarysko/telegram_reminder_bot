@@ -86,13 +86,28 @@ and descriptions. It is idempotent — re-run it whenever you change those setti
 
 ### 4. Run the bot
 
+The simplest way is `run.sh`, which loads `.env` into the environment and starts the
+bot using the project's virtualenv (falling back to `python3` if `.venv` is absent):
+
 ```bash
+chmod +x run.sh   # first time only
+./run.sh
+```
+
+Or run it directly, loading `.env` into your shell yourself:
+
+```bash
+set -a; source .env; set +a
 python main.py
 ```
 
-The bot connects via long-polling (no public URL needed). It must stay running to fire
-reminders — for a server, run it under `systemd` or a process manager with `BOT_TOKEN`
-in its environment.
+The bot connects via long-polling (no public URL needed) and logs to stdout. `Ctrl-C`
+stops it. To keep a foreground run going on a laptop, prefix it with `caffeinate -s` so
+the machine doesn't sleep.
+
+The bot must stay running to fire reminders. For unattended, always-on hosting (e.g. a
+Mac mini server) run it under a process manager — see [`deploy/README.md`](deploy/README.md)
+for a ready-made `launchd` setup using `run.sh`.
 
 ## Using the bot
 

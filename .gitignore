@@ -15,6 +15,10 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# Logs (runtime)
+logs/
+*.log
+
 # IDE / OS
 .idea/
 .DS_Store
