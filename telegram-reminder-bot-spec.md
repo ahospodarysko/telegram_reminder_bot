@@ -1,22 +1,28 @@
 # Telegram Reminder Bot — Project Specification
 
-**Version:** 1.2
+**Version:** 1.3
 **Language / stack:** Python
-**Status:** Draft for implementation
+**Status:** Implemented (spec reflects current behavior)
 
 ---
 
 ## 1. Summary
 
 A Telegram bot that lets a user save a note with a due date/time and then sends
-them reminders on Telegram at fixed offsets before the deadline — **1 day before,
-12 hours before, 6 hours before** — and at the **deadline itself**.
+them reminders on Telegram at fixed offsets before the deadline — **24 hours
+before** and **2 hours before**. There is no at-deadline ping in the normal case;
+an at-due ping only fires as a fallback when a reminder is created so close to the
+deadline that both offset pings are already in the past (see Section 3.3).
 
 Example: a reminder *"Doctor appointment"* due **21 Jun, 16:00** produces pings at
-20 Jun 16:00, 21 Jun 04:00, 21 Jun 10:00, and 21 Jun 16:00.
+20 Jun 16:00 and 21 Jun 14:00.
 
-The interface is **button-driven** where possible (see Section 6): the user taps
-rather than types for almost everything.
+Ping times are also shifted out of the user's **quiet hours** (22:00–08:00 local),
+so a reminder never wakes the user at night (see Section 3.6).
+
+The interface is **button-driven** where possible (see Section 6) and **bilingual**
+(English / Ukrainian, see Section 3.7): the user taps rather than types for almost
+everything.
 
 ---
 
@@ -35,7 +41,9 @@ and the whole design depends on getting this right:
   future reminder. No phone number is needed and none should be requested.
 
 **Therefore:** on the first START, the bot captures `chat_id` automatically and
-instead asks the user for their **timezone**, the one thing it cannot infer.
+asks the user only to pick a **language** (English / Ukrainian). The timezone is
+not asked up front — it is seeded from a host/`DEFAULT_TZ` default and can be
+changed any time via `/timezone` (see Sections 3.1 and 6.1).
 
 ---
 
@@ -45,22 +53,37 @@ These are settled up front because they cause the most trouble if left vague.
 
 ### 3.1 Timezones
 - Telegram does not reliably expose a user's timezone.
-- Ask each user for their timezone once (on first START, changeable via `/timezone`).
+- Each new user is seeded with a **default timezone**, resolved in order:
+  `DEFAULT_TZ` env var → the host machine's zone (from `/etc/localtime`) → `UTC`.
+- The user is **not** prompted for a timezone on first START; they change it any
+  time with `/timezone <IANA>` (or the 🌍 Timezone button).
 - Store **all** due times and ping times internally in **UTC**.
 - Convert to the user's timezone only for display.
+- Changing the timezone does **not** retroactively move existing reminders' stored
+  UTC times; it applies to newly created reminders.
 
 ### 3.2 Confirmation echo
 After a reminder is created, the bot replies with exactly how it interpreted the
 input, including all scheduled ping times. This catches parsing/timezone mistakes
 immediately. Example:
-> Got it: *"Doctor appointment"* due **Sat 21 Jun 16:00 (Europe/Kyiv)**.
-> I'll remind you at: 20 Jun 16:00, 21 Jun 04:00, 21 Jun 10:00, 21 Jun 16:00.
+> ✅ Got it: "Doctor appointment"
+> Due: Sat 21 Jun 16:00 (Europe/Kyiv)
+> I'll remind you at: Fri 20 Jun 16:00, Sat 21 Jun 14:00
+
+If the deadline has already passed at creation time (so no pings can be scheduled),
+the echo says so explicitly instead of listing ping times. The confirmation also
+carries a single inline **➕ New reminder** button so the user can immediately add
+another (see Section 6.4).
 
 ### 3.3 Skipping past offsets
-If a reminder is created less than 24h before the deadline, the −24h (and possibly
-−12h / −6h) pings are already in the past. The scheduler **skips any offset whose
-fire time has already passed** and only schedules future ones. If the reminder is
-created very close to the deadline, the at-due ping still fires.
+If a reminder is created less than 24h before the deadline, the −24h ping (and
+possibly the −2h ping) is already in the past. The scheduler **skips any offset
+whose fire time has already passed** and only schedules future ones.
+
+**Too-close fallback:** if *both* the −24h and −2h pings are already in the past
+but the deadline itself is still in the future, a single **at-deadline** ping
+(offset label `0`) is scheduled instead, so a "too close" reminder still notifies.
+If even the deadline has passed, no occurrences are scheduled at all.
 
 ### 3.4 Restart safety / missed reminders
 The bot and its host can restart. To avoid duplicate or dropped pings:
@@ -80,9 +103,32 @@ time. This falls out of the data model rather than needing special handling:
   reminders simply means more occurrence rows to scan; no extra logic is needed.
 - If several pings fall in the same minute (across one or many reminders), the
   poll fires them as a batch — each is a separate message.
-- **IDs the user types/taps:** `/list` displays each active reminder with its `id`,
-  and cancel/done target that same `id` (via inline buttons or `/cancel <id>`).
-  This is how the user picks one specific reminder when they have many.
+- **IDs the user taps:** `/list` displays each active reminder with inline Done /
+  Cancel buttons; those buttons carry the reminder's `id` in their `callback_data`.
+  This is how the user acts on one specific reminder when they have many. (Done and
+  Cancel are inline-button only — they are not typed `/done`/`/cancel` commands.)
+
+### 3.6 Quiet hours
+No ping fires between **22:00 (inclusive) and 08:00 (exclusive)** in the user's
+local time:
+- A fire time at/after 22:00 is moved to **08:00 the next morning**.
+- A fire time before 08:00 is moved to **08:00 the same morning**.
+- Times already inside the allowed window are left unchanged.
+
+Because both offsets can be shifted to the same 08:00, two pings that would land in
+the same night **collapse to a single 08:00 ping** (occurrences are de-duplicated by
+fire time). The too-close fallback ping (Section 3.3) is quiet-hours-adjusted too.
+
+### 3.7 Languages
+The bot UI is bilingual — **English (`en`)** and **Ukrainian (`uk`)**:
+- On first START the user picks a language; it is stored per user and changeable
+  any time via `/language` or by re-running the picker.
+- The initial language is seeded from the Telegram client locale when supported,
+  otherwise English.
+- All user-facing strings, the command menu, button labels, and date formatting
+  (localized weekday/month names) follow the chosen language.
+- **Reminder input accepts month names in either language regardless of UI
+  language** — e.g. both `June 21` and `21 червня` parse (see Section 6.5).
 
 ---
 
@@ -123,7 +169,8 @@ Conceptual; final column types decided at implementation.
 | Field | Description |
 |---|---|
 | `chat_id` | Telegram chat id (primary key). Captured on first START. |
-| `timezone` | IANA timezone string, e.g. `Europe/Kyiv`. |
+| `timezone` | IANA timezone string, e.g. `Europe/Kyiv`. Seeded from a default. |
+| `language` | UI language code, `en` or `uk` (default `en`). |
 | `created_at` | First seen timestamp (UTC). |
 
 ### 5.2 `reminders`
@@ -142,8 +189,8 @@ Conceptual; final column types decided at implementation.
 |---|---|
 | `id` | Primary key. |
 | `reminder_id` | References `reminders.id`. |
-| `offset` | One of `-24h`, `-12h`, `-6h`, `0`. |
-| `fire_at_utc` | Exact ping time in UTC. |
+| `offset` | `-24h`, `-2h`, or `0` (the at-deadline fallback — see Section 3.3). |
+| `fire_at_utc` | Exact ping time in UTC, already quiet-hours-adjusted (Section 3.6). |
 | `sent` | Boolean flag, default false. |
 
 Splitting pings into their own `occurrences` records is what makes
@@ -168,12 +215,14 @@ first tap is also what delivers the `chat_id` and grants permission to message t
 user, so it can't be skipped — but from the user's side it is a button, not typing.
 
 On that first START the bot:
-1. Captures and stores the user's `chat_id`.
-2. Greets the user and explains what the bot does.
-3. Asks for their timezone and stores it.
-4. Presents the main reply keyboard (6.3) for everything afterward.
+1. Captures and stores the user's `chat_id`, seeding a default timezone (Section 3.1)
+   and a default language guessed from the Telegram client locale.
+2. Shows an inline **language picker** (🇬🇧 EN / 🇺🇦 UA).
+3. On the language pick: confirms the language, greets the user, states the current
+   (default) timezone and how to change it, and presents the main reply keyboard (6.3).
 
-(No phone number / account id is ever requested — see Section 2.)
+The timezone is **not** asked here — it is defaulted and changed later via
+`/timezone`. (No phone number / account id is ever requested — see Section 2.)
 
 ### 6.2 Tappable command menu
 Register all commands with `setMyCommands` (see Section 8). They then appear in a
@@ -194,40 +243,62 @@ reply keyboard only appears after the bot has sent a message — which is why th
 built-in START button covers the very first step.
 
 ### 6.4 Inline buttons on each reminder
-Reminder messages and `/list` entries carry **inline buttons** (attached under the
-message) for per-item actions:
+`/list` entries (and reminder ping messages) carry **inline buttons** (attached
+under the message) for per-item actions:
 
 ```
-🔔 Doctor appointment — Sat 21 Jun 16:00
-[ ✅ Done ] [ 😴 Snooze ] [ ✖ Cancel ]
+🔔 Doctor appointment
+🗓 Due: Sat 21 Jun 16:00
+⏰ Reminders: Fri 20 Jun 16:00, Sat 21 Jun 14:00
+[ ✅ Done ] [ ✖ Cancel ]
 ```
 
-These use `callback_data` and act invisibly (no extra message from the user). This
-is the cleanest way to let the user act on a specific reminder out of many.
+These use `callback_data` (`done:<id>` / `cancel:<id>`) and act invisibly (no extra
+message from the user); tapping edits the message in place to confirm. This is the
+cleanest way to let the user act on a specific reminder out of many. (There is no
+Snooze button — it was dropped from v1.)
+
+The reminder **confirmation echo** (Section 3.2) instead carries a single inline
+**➕ New reminder** button (`callback_data = new`) — a shortcut to start another,
+rather than Done/Cancel which would read like a "save" control.
 
 ### 6.5 Creating a reminder
-- **v1 input format (strict):** e.g. `Doctor appointment | 2026-06-21 16:00`
-  (note text and datetime separated by a delimiter), entered after tapping
-  *➕ New reminder*.
-- Bot parses, stores the reminder, computes the four ping times, skips any past
-  offsets, and sends the confirmation echo (Section 3.2).
+- **Input format (strict):** `note text @ Month Day HH:MM`, entered after tapping
+  *➕ New reminder* (or `/remind`). Examples: `Doctor appointment @ June 21 16:00`
+  or `Прийом у лікаря @ 21 червня 16:00`.
+- The separator is `@`, matched on its **last** occurrence so a note containing `@`
+  still parses (the trailing date/time never contains one).
+- **No year is typed:** the year defaults to the current year and rolls forward to
+  next year if that date/time has already passed locally (so "March 1" entered in
+  June means *next* March).
+- Date parsing is **order- and language-agnostic**: it finds the `HH:MM` token
+  (24-hour), a numeric day, and a month name in English **or** Ukrainian, in any
+  order — independent of the user's UI language.
+- Bot parses, converts the local wall-clock time to UTC, stores the reminder,
+  computes the ping times (skipping past offsets, applying quiet hours), and sends
+  the confirmation echo (Section 3.2). Parse failures return a localized, retryable
+  error (`missing_separator` / `empty_note` / `bad_datetime`).
 
 ### 6.6 Commands (also reachable as buttons)
 | Command | Purpose |
 |---|---|
-| `/start` | Register user, set timezone (normally via the START button). |
-| `/remind` | Create a timed reminder (also the *➕ New reminder* button). |
-| `/list` | Show active reminders with inline action buttons. |
-| `/cancel <id>` | Cancel a reminder (also the *✖ Cancel* inline button). |
-| `/done <id>` | Mark complete (also the *✅ Done* inline button). |
-| `/snooze <id> <duration>` | Push forward (also the *😴 Snooze* inline button). |
-| `/timezone` | View or change timezone. |
+| `/start` | Register user and show the language picker (normally via the START button). |
+| `/remind` | Create a reminder (also the *➕ New reminder* button). |
+| `/list` | Show active reminders, each with inline ✅ Done / ✖ Cancel buttons. |
+| `/timezone [IANA]` | View the current timezone, or set it when an argument is given (also the *🌍 Timezone* button). |
+| `/language` | Re-show the language picker to change UI language. |
 | `/help` | Show usage. |
 
+**Done / Cancel** are inline-button actions only (`done:<id>` / `cancel:<id>`), not
+typed commands. **Snooze** was removed from v1.
+
 ### 6.7 Lists / plain notes
-The grocery-list case usually has no deadline. Such items use `type = list`/`note`
-and receive **no scheduled pings** (or a single optional reminder), keeping timed
-reminders and plain lists cleanly separated.
+The **data model already supports** deadline-less items: `reminders.type` defaults
+to `timed` but allows `list`/`note`, `due_at_utc` is nullable, and `/list` renders a
+"no deadline" entry with no pending pings. However, the **v1 create flow always
+produces a `timed` reminder** — every creation requires a parseable date/time, so
+plain lists/notes are not yet user-creatable. Exposing them in the UI is a future
+extension (Section 11).
 
 ### 6.8 Optional: deep-link onboarding
 A link or QR code of the form `https://t.me/YourBot?start=PAYLOAD` opens the bot
@@ -298,16 +369,18 @@ Long-polling means no inbound public endpoint is required.
 
 ## 10. Suggested build order
 
-1. **Setup script** — apply `setMyCommands`, menu button, name/descriptions;
-   read `BOT_TOKEN` from the environment (Section 8).
-2. Bot handles the START button: captures `chat_id`, asks for and stores timezone,
-   shows the main reply keyboard.
-3. Create + store a reminder in the strict format, with the confirmation echo.
-4. Polling scheduler that sends the **at-due** ping.
-5. Add −24h / −12h / −6h offsets with past-offset skipping.
-6. `/list` with inline Done / Snooze / Cancel buttons; `/timezone`.
-7. Restart-safety verification (occurrences + `sent` flag).
-8. Later: natural-language dates, recurring reminders, lists/notes.
+1. **Setup script** — apply `setMyCommands` (en + uk), menu button,
+   name/descriptions; read `BOT_TOKEN` from the environment (Section 8).
+2. Bot handles the START button: captures `chat_id`, seeds a default timezone, shows
+   the language picker, then the main reply keyboard.
+3. Create + store a reminder in the strict `@` format (no year, EN/UK months), with
+   the confirmation echo.
+4. Polling scheduler that sends due pings (occurrences + `sent` flag).
+5. Add −24h / −2h offsets with past-offset skipping and the at-deadline fallback.
+6. Add quiet-hours shifting (22:00–08:00) and same-night collision de-duplication.
+7. `/list` with inline Done / Cancel buttons; `/timezone`; `/language` + i18n (en/uk).
+8. Restart-safety verification (occurrences + `sent` flag).
+9. Later: natural-language dates, recurring reminders, user-creatable lists/notes.
 
 ---
 
@@ -315,6 +388,9 @@ Long-polling means no inbound public endpoint is required.
 
 - Natural-language date parsing ("next Friday at 4pm").
 - Recurring reminders (daily / weekly / monthly).
-- Customizable offsets per reminder.
+- Customizable offsets and quiet hours per user/reminder.
+- Snooze action on pings (was dropped from v1).
+- User-creatable plain lists/notes (the schema already supports them — Section 6.7).
 - Multiple lists and shared lists.
+- Additional UI languages beyond English / Ukrainian.
 - A Telegram Web App (mini-app) opened from the menu button for richer UI.
