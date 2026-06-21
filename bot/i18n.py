@@ -94,7 +94,7 @@ TEXT: dict[str, dict[str, str]] = {
         # list
         "list_header": "📋 You have {count} active reminder(s):",
         "list_empty": "You have no active reminders. Tap {btn} to make one.",
-        "list_item": "🔔 *{text}*\n🗓 Due: {when}\n⏰ Reminders: {pings}",
+        "list_item": "🔔 *{text}*\n🗓 Due: {when}\n⏰ Reminders:{pings}",
         "list_no_pending": "all sent",
         "no_deadline_word": "no deadline",
         # timezone
@@ -182,7 +182,7 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "list_header": "📋 У вас активних нагадувань: {count}",
         "list_empty": "У вас немає активних нагадувань. Натисніть {btn}, щоб створити.",
-        "list_item": "🔔 *{text}*\n🗓 Дедлайн: {when}\n⏰ Нагадування: {pings}",
+        "list_item": "🔔 *{text}*\n🗓 Дедлайн: {when}\n⏰ Нагадування:{pings}",
         "list_no_pending": "усі надіслані",
         "no_deadline_word": "без дедлайну",
         "tz_prompt": (

@@ -175,10 +175,14 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         due = db.from_db(r["due_at_utc"]) if r["due_at_utc"] else None
         when = i18n.format_when(due, tz_name, lang) if due else i18n.t(lang, "no_deadline_word")
         pending = db.get_pending_occurrences(conn, r["id"])
-        pings = (
-            "; ".join(i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang) for o in pending)
-            if pending else i18n.t(lang, "list_no_pending")
-        )
+        if pending:
+            # One ping per line, bulleted — reads as a column under the label.
+            pings = "".join(
+                "\n• " + i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang)
+                for o in pending
+            )
+        else:
+            pings = " " + i18n.t(lang, "list_no_pending")
         await update.message.reply_text(
             i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings),
             parse_mode=ParseMode.MARKDOWN,
