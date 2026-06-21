@@ -63,7 +63,7 @@ def _confirmation(lang: str, tz: str, note: str, due_at_utc, occurrences) -> str
     """Build the localized confirmation echo for a created reminder."""
     due = i18n.format_when(due_at_utc, tz, lang)
     if occurrences:
-        pings = ", ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
+        pings = "; ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
         return i18n.t(lang, "confirm_ok", note=note, due=due, tz=tz, pings=pings)
     return i18n.t(lang, "confirm_none", note=note, due=due, tz=tz)
 
@@ -176,7 +176,7 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         when = i18n.format_when(due, tz_name, lang) if due else i18n.t(lang, "no_deadline_word")
         pending = db.get_pending_occurrences(conn, r["id"])
         pings = (
-            ", ".join(i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang) for o in pending)
+            "; ".join(i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang) for o in pending)
             if pending else i18n.t(lang, "list_no_pending")
         )
         await update.message.reply_text(
