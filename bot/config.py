@@ -9,25 +9,47 @@ import os
 from pathlib import Path
 
 
+def is_test_env() -> bool:
+    """True when running against the test bot, selected by ``BOT_ENV``.
+
+    ``BOT_ENV`` is ``test``/``dev``/``development`` (case-insensitive) for development;
+    anything else (including unset) means production.
+    """
+    return os.environ.get("BOT_ENV", "").strip().lower() in {"test", "dev", "development"}
+
+
 def get_token() -> str:
-    """Return the BotFather token from ``BOT_TOKEN``.
+    """Return the BotFather token for the active environment.
+
+    Reads ``TEST_BOT_TOKEN`` in the test environment (see :func:`is_test_env`) and
+    ``BOT_TOKEN`` otherwise. This lets development run against a separate test bot
+    without touching the production token.
 
     Raises:
-        RuntimeError: if the variable is missing or empty. The token value itself is
-            never included in the message, so it cannot leak into logs.
+        RuntimeError: if the relevant variable is missing or empty. The token value
+            itself is never included in the message, so it cannot leak into logs.
     """
-    token = os.environ.get("BOT_TOKEN", "").strip()
+    var = "TEST_BOT_TOKEN" if is_test_env() else "BOT_TOKEN"
+    token = os.environ.get(var, "").strip()
     if not token:
         raise RuntimeError(
-            "BOT_TOKEN is not set. Put your BotFather token in the BOT_TOKEN "
+            f"{var} is not set. Put your BotFather token in the {var} "
             "environment variable (see .env.example)."
         )
     return token
 
 
 def get_db_path() -> str:
-    """Return the SQLite database path (``DB_PATH`` env or ``reminders.db``)."""
-    return os.environ.get("DB_PATH", "reminders.db").strip() or "reminders.db"
+    """Return the SQLite database path.
+
+    Honours ``DB_PATH`` if set. Otherwise defaults to ``reminders.db`` in production
+    and ``reminders.test.db`` in the test environment, so a dev run can never write to
+    or fire reminders from the production database.
+    """
+    explicit = os.environ.get("DB_PATH", "").strip()
+    if explicit:
+        return explicit
+    return "reminders.test.db" if is_test_env() else "reminders.db"
 
 
 def default_timezone() -> str:
