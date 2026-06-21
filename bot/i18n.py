@@ -55,6 +55,13 @@ TEXT: dict[str, dict[str, str]] = {
         "choose_language": "🌐 Choose your language / Оберіть мову:",
         "language_set": "✅ Language set to *{name}*.",
         # start / help
+        # Bot Description — shown on the empty-chat screen before the user taps Start.
+        # Telegram serves this per the user's app language (set via set_my_description).
+        "bot_description": (
+            "👋 I send reminders before your deadlines — 24 hours and 2 hours ahead.\n\n"
+            "Save a note with a date, and I'll ping you in time.\n\n"
+            "Tap Start to begin."
+        ),
         "greeting": (
             "👋 Welcome! I send reminders before your deadlines — 24h and 2h before.\n\n"
             "Your timezone is *{tz}*. Change it with /timezone, or your language with "
@@ -133,10 +140,16 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_list": "📋 Мої нагадування",
         "btn_timezone": "🌍 Часовий пояс",
         "btn_help": "❓ Допомога",
-        "btn_done": "✅ Готово",
+        "btn_done": "✅ Завершити",
         "btn_cancel": "✖ Скасувати",
         "choose_language": "🌐 Choose your language / Оберіть мову:",
         "language_set": "✅ Мову змінено на *{name}*.",
+        "bot_description": (
+            "👋 Я надсилаю нагадування перед вашими дедлайнами — за 24 години та за 2 "
+            "години.\n\n"
+            "Збережіть нотатку з датою — і я нагадаю вчасно.\n\n"
+            "Натисніть Start, щоб почати."
+        ),
         "greeting": (
             "👋 Вітаю! Я надсилаю нагадування перед дедлайнами — за 24 години та за 2 "
             "години.\n\n"
@@ -150,7 +163,7 @@ TEXT: dict[str, dict[str, str]] = {
             "нього.\n\n"
             "*Команди*\n"
             "• /remind — нове нагадування\n"
-            "• /list — список активних нагадувань (✅ Готово / ✖ Скасувати на кожному)\n"
+            "• /list — список активних нагадувань (✅ Завершити / ✖ Скасувати на кожному)\n"
             "• /timezone `[IANA]` — переглянути чи задати часовий пояс\n"
             "• /language — змінити мову\n\n"
             "*Формат створення:* `{hint}`\n"
