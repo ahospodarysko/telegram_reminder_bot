@@ -7,8 +7,10 @@ below.
 
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Ping offsets before the deadline. Order is the order in which the pings fire and are
@@ -44,6 +46,17 @@ MONTHS: dict[str, int] = {
 }
 
 _TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+
+# Recurrence keywords accepted on the date side of the input (after the separator). All
+# map to 'monthly' in v1 — the schema/code allow weekly/yearly later (see the plan).
+# Multi-word phrases are listed so a prefix match strips the whole phrase; matching is
+# case-insensitive and language-agnostic (EN + UK), like MONTHS.
+_RECURRENCE_KEYWORDS: list[tuple[str, str]] = [
+    ("every month", "monthly"),
+    ("кожного місяця", "monthly"),
+    ("monthly", "monthly"),
+    ("щомісяця", "monthly"),
+]
 
 
 class ParseError(ValueError):
@@ -193,25 +206,48 @@ def plan_occurrences(
     return planned
 
 
-def parse_reminder_input(text: str, now_local: datetime) -> tuple[str, datetime]:
-    """Parse ``"note text @ Month Day HH:MM"`` into ``(text, naive_local_datetime)``.
+class ParsedReminder(NamedTuple):
+    """Result of :func:`parse_reminder_input`.
 
-    The year is not typed by the user: it defaults to ``now_local``'s year, and rolls
-    forward to the next year if that date/time has already passed in the user's local
-    time (so e.g. "March 1" entered in June means next March, not an unreachable past).
+    ``when`` is the first deadline as naive wall-clock time in the user's timezone (the
+    caller converts it to UTC). For one-shot reminders ``recurrence`` is ``'none'`` and
+    ``anchor_day`` is ``None``; for monthly ones ``recurrence`` is ``'monthly'`` and
+    ``anchor_day`` is the original 1–31 day-of-month to repeat on.
+    """
 
-    Splits on the *last* :data:`SEPARATOR` so a note containing the separator character
-    still parses (the trailing date/time never contains one). The returned datetime is
-    naive wall-clock time in the user's timezone; the caller converts it to UTC with
-    :func:`local_to_utc`.
+    note: str
+    when: datetime
+    recurrence: str
+    anchor_day: int | None
+
+
+def parse_reminder_input(
+    text: str, now_local: datetime, force_recurrence: str | None = None
+) -> ParsedReminder:
+    """Parse a reminder input into a :class:`ParsedReminder`.
+
+    Two shapes are accepted on the date side (after the *last* :data:`SEPARATOR`, so a
+    note containing the separator still parses):
+
+    - One-shot: ``"note @ Month Day HH:MM"``. The year is not typed — it defaults to
+      ``now_local``'s year and rolls to next year if that date/time has already passed.
+    - Recurring monthly: ``"note @ monthly Day HH:MM"`` (or ``every month`` / Ukrainian
+      ``щомісяця`` / ``кожного місяця``). The **month name is omitted**; only day-of-month
+      and time are given. The first deadline is that day/time this month if still ahead,
+      otherwise next month (day clamped to the month's length).
+
+    ``force_recurrence`` pins the type instead of auto-detecting it from a keyword: the
+    type-picker flow passes ``'monthly'`` (parse day + time, keyword optional) or
+    ``'none'`` (parse as one-shot). Left ``None`` (e.g. ``/remind``), the keyword decides.
 
     Args:
         text: the raw user input.
         now_local: current time in the user's timezone, naive (``tzinfo is None``).
+        force_recurrence: ``'monthly'`` / ``'none'`` to pin the type, or ``None`` to detect.
 
     Raises:
         ParseError: with a ``.code`` (``missing_separator`` / ``empty_note`` /
-            ``bad_datetime``) the caller translates.
+            ``bad_datetime`` / ``bad_recurrence``) the caller translates.
     """
     note_part, sep, datetime_part = text.rpartition(SEPARATOR)
     if not sep:
@@ -221,12 +257,114 @@ def parse_reminder_input(text: str, now_local: datetime) -> tuple[str, datetime]
     if not note:
         raise ParseError("empty_note")
 
+    if force_recurrence == "monthly":
+        # Type already chosen — strip the keyword if the user typed one anyway.
+        recurrence, remainder = "monthly", _match_recurrence(when)[1]
+    elif force_recurrence == "none":
+        recurrence, remainder = "none", when
+    else:
+        recurrence, remainder = _match_recurrence(when)
+
+    if recurrence != "none":
+        day, hour, minute = _parse_day_time(remainder)
+        first_due = _build_first_monthly(now_local, day, hour, minute)
+        return ParsedReminder(note, first_due, recurrence, day)
+
     month, day, hour, minute = _parse_when_parts(when)
     parsed = _build(now_local.year, month, day, hour, minute)
     if parsed < now_local:
         # The date has already passed this year — assume the user means next year.
         parsed = _build(now_local.year + 1, month, day, hour, minute)
-    return note, parsed
+    return ParsedReminder(note, parsed, "none", None)
+
+
+def _match_recurrence(when: str) -> tuple[str, str]:
+    """Detect a leading recurrence keyword. Returns ``(kind, remainder_after_keyword)``.
+
+    ``kind`` is ``'none'`` (and ``remainder`` is ``when`` unchanged) when no keyword leads.
+    """
+    lowered = when.lower()
+    for phrase, kind in _RECURRENCE_KEYWORDS:
+        if lowered == phrase or lowered.startswith(phrase + " "):
+            return kind, when[len(phrase):].strip()
+    return "none", when
+
+
+def _parse_day_time(when: str) -> tuple[int, int, int]:
+    """Extract ``(day, hour, minute)`` from a recurring date side (no month name).
+
+    Raises:
+        ParseError("bad_recurrence"): if the time or a 1–31 day is missing/invalid.
+    """
+    time_match = _TIME_RE.search(when)
+    if not time_match:
+        raise ParseError("bad_recurrence")
+    hour, minute = int(time_match.group(1)), int(time_match.group(2))
+    if hour > 23 or minute > 59:
+        raise ParseError("bad_recurrence")
+
+    rest = (when[: time_match.start()] + " " + when[time_match.end() :]).split()
+    day = None
+    for token in rest:
+        token = token.strip(".,").lower()
+        if token.isdigit() and day is None:
+            day = int(token)
+    if day is None or not 1 <= day <= 31:
+        raise ParseError("bad_recurrence")
+    return day, hour, minute
+
+
+def _clamped_date(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
+    """Build a naive datetime, clamping ``day`` to the month's last day (handles 29–31).
+
+    Day 31 → 28/29 Feb, 30 Apr, etc.; days that exist in the month are preserved. This is
+    the short-month rule (plan §3.2): a monthly reminder still fires every month.
+    """
+    last_day = calendar.monthrange(year, month)[1]
+    return datetime(year, month, min(day, last_day), hour, minute)
+
+
+def _next_month(year: int, month: int) -> tuple[int, int]:
+    """The (year, month) one calendar month after the given one."""
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def _build_first_monthly(now_local: datetime, day: int, hour: int, minute: int) -> datetime:
+    """First deadline for a monthly reminder: this month if still ahead, else next month."""
+    candidate = _clamped_date(now_local.year, now_local.month, day, hour, minute)
+    if candidate < now_local:
+        year, month = _next_month(now_local.year, now_local.month)
+        candidate = _clamped_date(year, month, day, hour, minute)
+    return candidate
+
+
+def next_monthly_due(
+    prev_due_utc: datetime, anchor_day: int, tz_name: str, now_utc: datetime
+) -> datetime:
+    """Compute the next monthly deadline strictly after ``now_utc``.
+
+    Advances month-by-month from ``prev_due_utc`` (catch-up after downtime, plan §3.4),
+    rebuilding the deadline in the user's *local* time each step so the wall-clock time
+    is DST-stable, and clamping ``anchor_day`` to each month's length (plan §3.2).
+
+    Args:
+        prev_due_utc: the current/just-passed deadline, timezone-aware UTC.
+        anchor_day: the original day-of-month (1–31) to repeat on.
+        tz_name: the user's IANA timezone.
+        now_utc: current time, timezone-aware UTC.
+
+    Returns:
+        The next deadline as timezone-aware UTC.
+    """
+    local_prev = utc_to_local(prev_due_utc, tz_name)
+    hour, minute = local_prev.hour, local_prev.minute
+    year, month = local_prev.year, local_prev.month
+    while True:
+        year, month = _next_month(year, month)
+        naive = _clamped_date(year, month, anchor_day, hour, minute)
+        due_utc = local_to_utc(naive, tz_name)
+        if due_utc > now_utc:
+            return due_utc
 
 
 def _parse_when_parts(when: str) -> tuple[int, int, int, int]:

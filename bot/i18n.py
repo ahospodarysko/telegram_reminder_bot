@@ -43,6 +43,8 @@ TEXT: dict[str, dict[str, str]] = {
         # input format
         "input_hint": f"note text {SEPARATOR} Month Day HH:MM",
         "input_example": f"Doctor appointment {SEPARATOR} June 21 16:00",
+        "input_hint_monthly": f"note text {SEPARATOR} Day HH:MM",
+        "input_example_monthly": f"Pay rent {SEPARATOR} 5 09:00",
         # buttons — reply menu
         "btn_new": "➕ New reminder",
         "btn_list": "📋 My reminders",
@@ -51,6 +53,10 @@ TEXT: dict[str, dict[str, str]] = {
         # buttons — inline
         "btn_done": "✅ Done",
         "btn_cancel": "✖ Cancel",
+        "btn_done_cycle": "✅ Done (this cycle)",
+        "btn_stop_repeating": "🛑 Stop repeating",
+        "btn_type_monthly": "🔁 Monthly",
+        "btn_type_basic": "🔔 Basic",
         # language
         "choose_language": "🌐 Choose your language / Оберіть мову:",
         "language_set": "✅ Language set to *{name}*.",
@@ -58,7 +64,7 @@ TEXT: dict[str, dict[str, str]] = {
         # Bot Description — shown on the empty-chat screen before the user taps Start.
         # Telegram serves this per the user's app language (set via set_my_description).
         "bot_description": (
-            "👋 I send reminders before your deadlines — 24 hours and 2 hours ahead.\n\n"
+            "👋 I send reminders, including monthly ones.\n\n"
             "Save a note with a date, and I'll ping you in time.\n\n"
             "Tap Start to begin."
         ),
@@ -70,31 +76,49 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "help": (
             "🤖 *Reminder bot*\n\n"
-            "Save a note with a deadline and I'll ping you *24h and 2h before* it.\n\n"
+            "Save a note with a deadline and I'll ping you *24h and 2h before* it.\n"
+            "Reminders can be *one-time* or *monthly* (repeats on the same day each month).\n\n"
             "*Commands*\n"
-            "• /remind — new reminder\n"
-            "• /list — list active reminders (tap ✅ Done / ✖ Cancel on each)\n"
+            "• /remind — new reminder (choose one-time or monthly)\n"
+            "• /list — list active reminders (tap ✖ Cancel to remove)\n"
             "• /timezone `[IANA]` — view or set timezone\n"
             "• /language — change language\n\n"
-            "*Create format:* `{hint}`\n"
+            "*One-time:* `{hint}`\n"
             "_Example:_ `{example}`\n"
+            "*Monthly:* tap ➕ New reminder → Monthly, then send `note @ Day HH:MM`.\n"
             "The year is assumed; month names work in English or Ukrainian."
         ),
         # new reminder
+        "choose_reminder_type": "🆕 Choose reminder type:",
         "new_prompt": (
             "📝 Send your reminder in this format:\n`{hint}`\n\n_Example:_ `{example}`"
         ),
+        "new_prompt_monthly": (
+            "🔁 Send your monthly reminder in this format:\n`{hint}`\n\n"
+            "_Example:_ `{example}`\nIt repeats on that day every month."
+        ),
         "confirm_ok": (
-            "✅ Got it: “{note}”\nDue: {due} ({tz})\nI'll remind you at: {pings}"
+            "✅ Got it: “{note}”\nDue: {due}\nI'll remind you at: {pings}"
         ),
         "confirm_none": (
-            "✅ Got it: “{note}”\nDue: {due} ({tz})\n"
+            "✅ Got it: “{note}”\nDue: {due}\n"
             "⚠️ That time has already passed — no reminders scheduled."
+        ),
+        # recurring
+        "recur_monthly_desc": "monthly on day {day} at {time}",
+        "confirm_recurring": (
+            "✅ Got it: “{note}”\n🔁 Repeats {rule}"
+        ),
+        "confirm_recurring_none": (
+            "✅ Got it: “{note}”\n🔁 Repeats {rule}"
         ),
         # list
         "list_header": "📋 You have {count} active reminder(s):",
         "list_empty": "You have no active reminders. Tap {btn} to make one.",
         "list_item": "🔔 *{text}*\n🗓 Due: {when}\n⏰ Reminders:{pings}",
+        "list_item_recurring": (
+            "🔁 *{text}*\n🔄 Repeats {rule}"
+        ),
         "list_no_pending": "all sent",
         "no_deadline_word": "no deadline",
         # timezone
@@ -119,6 +143,8 @@ TEXT: dict[str, dict[str, str]] = {
         "cb_gone": "That reminder no longer exists.",
         "cb_done_msg": "✅ Done: “{text}”",
         "cb_cancelled_msg": "✖ Cancelled: “{text}”",
+        "cb_done_cycle": "Done for this cycle ✅",
+        "cb_done_cycle_msg": "✅ Done for this cycle: “{text}”\n🔁 Next: {next}",
         # pings
         "ping_due_now": "🔔 Reminder — “{text}” is due now.",
         "ping_due_before": "⏰ Reminder — “{text}” is coming up (due {due}).",
@@ -132,21 +158,30 @@ TEXT: dict[str, dict[str, str]] = {
             "I couldn't read the date/time. Use a month name, day, and 24-hour time, "
             "e.g. “{example}”."
         ),
+        "err_bad_recurrence": (
+            "I couldn't read the recurring schedule. Give a day and 24-hour time "
+            "(no month name), e.g. “monthly 5 09:00”."
+        ),
     },
     "uk": {
         "input_hint": f"текст {SEPARATOR} День Місяць ГГ:ХХ",
         "input_example": f"Прийом у лікаря {SEPARATOR} 21 червня 16:00",
+        "input_hint_monthly": f"текст {SEPARATOR} День ГГ:ХХ",
+        "input_example_monthly": f"Оренда {SEPARATOR} 5 09:00",
         "btn_new": "➕ Нове нагадування",
         "btn_list": "📋 Мої нагадування",
         "btn_timezone": "🌍 Часовий пояс",
         "btn_help": "❓ Допомога",
         "btn_done": "✅ Завершити",
         "btn_cancel": "✖ Скасувати",
+        "btn_done_cycle": "✅ Завершити (цей місяць)",
+        "btn_stop_repeating": "🛑 Зупинити повтор",
+        "btn_type_monthly": "🔁 Щомісячне",
+        "btn_type_basic": "🔔 Стандартне",
         "choose_language": "🌐 Choose your language / Оберіть мову:",
         "language_set": "✅ Мову змінено на *{name}*.",
         "bot_description": (
-            "👋 Я надсилаю нагадування перед вашими дедлайнами — за 24 години та за 2 "
-            "години.\n\n"
+            "👋 Я надсилаю нагадування, зокрема щомісячні.\n\n"
             "Збережіть нотатку з датою — і я нагадаю вчасно.\n\n"
             "Натисніть Start, щоб почати."
         ),
@@ -160,29 +195,46 @@ TEXT: dict[str, dict[str, str]] = {
         "help": (
             "🤖 *Бот нагадувань*\n\n"
             "Збережіть нотатку з дедлайном, і я нагадаю *за 24 години та за 2 години* до "
-            "нього.\n\n"
+            "нього.\n"
+            "Нагадування бувають *разові* або *щомісячні* (повторюються того ж числа щомісяця).\n\n"
             "*Команди*\n"
-            "• /remind — нове нагадування\n"
-            "• /list — список активних нагадувань (✅ Завершити / ✖ Скасувати на кожному)\n"
+            "• /remind — нове нагадування (разове або щомісячне)\n"
+            "• /list — список активних нагадувань (✖ Скасувати, щоб видалити)\n"
             "• /timezone `[IANA]` — переглянути чи задати часовий пояс\n"
             "• /language — змінити мову\n\n"
-            "*Формат створення:* `{hint}`\n"
+            "*Разове:* `{hint}`\n"
             "_Приклад:_ `{example}`\n"
+            "*Щомісячне:* натисніть ➕ Нове нагадування → Щомісячне, далі `текст @ День ГГ:ХХ`.\n"
             "Рік підставляється автоматично; назви місяців — українською або англійською."
         ),
+        "choose_reminder_type": "🆕 Оберіть тип нагадування:",
         "new_prompt": (
             "📝 Надішліть нагадування у такому форматі:\n`{hint}`\n\n_Приклад:_ `{example}`"
         ),
+        "new_prompt_monthly": (
+            "🔁 Надішліть щомісячне нагадування у форматі:\n`{hint}`\n\n"
+            "_Приклад:_ `{example}`\nВоно повторюватиметься цього числа щомісяця."
+        ),
         "confirm_ok": (
-            "✅ Прийнято: «{note}»\nДедлайн: {due} ({tz})\nНагадаю: {pings}"
+            "✅ Прийнято: «{note}»\nДедлайн: {due}\nНагадаю: {pings}"
         ),
         "confirm_none": (
-            "✅ Прийнято: «{note}»\nДедлайн: {due} ({tz})\n"
+            "✅ Прийнято: «{note}»\nДедлайн: {due}\n"
             "⚠️ Цей час уже минув — нагадування не заплановані."
+        ),
+        "recur_monthly_desc": "щомісяця {day}-го числа о {time}",
+        "confirm_recurring": (
+            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}"
+        ),
+        "confirm_recurring_none": (
+            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}"
         ),
         "list_header": "📋 У вас активних нагадувань: {count}",
         "list_empty": "У вас немає активних нагадувань. Натисніть {btn}, щоб створити.",
         "list_item": "🔔 *{text}*\n🗓 Дедлайн: {when}\n⏰ Нагадування:{pings}",
+        "list_item_recurring": (
+            "🔁 *{text}*\n🔄 Повторюється {rule}"
+        ),
         "list_no_pending": "усі надіслані",
         "no_deadline_word": "без дедлайну",
         "tz_prompt": (
@@ -204,6 +256,8 @@ TEXT: dict[str, dict[str, str]] = {
         "cb_gone": "Цього нагадування більше не існує.",
         "cb_done_msg": "✅ Готово: «{text}»",
         "cb_cancelled_msg": "✖ Скасовано: «{text}»",
+        "cb_done_cycle": "Завершено на цей місяць ✅",
+        "cb_done_cycle_msg": "✅ Завершено на цей місяць: «{text}»\n🔁 Наступне: {next}",
         "ping_due_now": "🔔 Нагадування — «{text}» час настав.",
         "ping_due_before": "⏰ Нагадування — «{text}» незабаром (дедлайн {due}).",
         "err_missing_separator": (
@@ -214,6 +268,10 @@ TEXT: dict[str, dict[str, str]] = {
         "err_bad_datetime": (
             "Не вдалося розпізнати дату/час. Вкажіть назву місяця, день і час у "
             "24-годинному форматі, напр. «{example}»."
+        ),
+        "err_bad_recurrence": (
+            "Не вдалося розпізнати розклад повтору. Вкажіть день і час у 24-годинному "
+            "форматі (без назви місяця), напр. «щомісяця 5 09:00»."
         ),
     },
 }

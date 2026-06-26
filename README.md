@@ -2,6 +2,8 @@
 
 A Telegram bot for timed reminders. Save a note with a deadline and the bot pings you
 **24 hours before** and **2 hours before** the deadline.
+Reminders can be **one-time** or **monthly** — a monthly reminder repeats on the same
+day each month until you stop it.
 The interface is available in **English and Ukrainian** — chosen on `/start` and
 changeable anytime with `/language`.
 
@@ -21,6 +23,11 @@ tap rather than type for almost everything.
   and date *input* accepts month names in either language (`June 21` or `21 червня`).
 - **Timezone:** new users default to the host machine's timezone (or `DEFAULT_TZ`).
   Change yours anytime with `/timezone`.
+- **Monthly reminders:** pick *Monthly* when creating a reminder and give just a day +
+  time (e.g. `Pay rent @ 5 09:00`). It fires every month on that day; short months clamp
+  to the last day (a 31st becomes 28/29 Feb, 30 Apr…). The deadline is recomputed in
+  local time each cycle, so the wall-clock time stays put across DST. **Done (this cycle)**
+  rolls it to next month; **Stop repeating** ends the series.
 - **Quiet hours:** no ping fires between **22:00 and 08:00** in the user's local time.
   Any ping that would land in that window is pushed to 08:00 that morning (e.g. a 2h-ahead
   ping for a 09:00 deadline moves from 07:00 to 08:00). Pings that collapse onto the same
@@ -36,11 +43,11 @@ tap rather than type for almost everything.
 bot/
   config.py      # BOT_TOKEN + default timezone resolution
   db.py          # SQLite schema + CRUD (source of truth)
-  scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing (en+uk)
+  scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing, monthly recurrence
   i18n.py        # English + Ukrainian strings, localized dates, button label sets
   keyboards.py   # reply + inline keyboards (language-aware)
   handlers.py    # commands, menu buttons, free text, inline callbacks
-  scheduler.py   # the minute polling loop
+  scheduler.py   # the minute polling loop (sends pings, rolls recurring reminders forward)
   app.py         # builds the Application and runs long-polling
 setup_bot.py     # one-time Bot API configuration (commands, menu, name, descriptions)
 main.py          # entrypoint: python main.py
@@ -118,12 +125,16 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 [ 🌍 Timezone    ] [ ❓ Help         ]
 ```
 
-- **➕ New reminder** (or `/remind`) → send your reminder as `note text @ Month Day HH:MM`,
-  e.g. `Doctor appointment @ June 21 16:00`. The year is assumed to be the current one
-  (rolling to next year if that date has already passed), and the time is 24-hour. The
-  bot echoes how it understood the input and lists every scheduled ping time.
-- **📋 My reminders** (or `/list`) → each active reminder with inline
-  **✅ Done / ✖ Cancel** buttons.
+- **➕ New reminder** (or `/remind`) → first choose a type:
+  - **🔔 Basic** → send `note text @ Month Day HH:MM`, e.g. `Doctor appointment @ June 21 16:00`.
+    The year is assumed to be the current one (rolling to next year if that date has already
+    passed), and the time is 24-hour.
+  - **🔁 Monthly** → send `note text @ Day HH:MM` (no month), e.g. `Pay rent @ 5 09:00`.
+    It repeats on that day every month.
+
+  The bot echoes how it understood the input and lists every scheduled ping time.
+- **📋 My reminders** (or `/list`) → each active reminder with an inline **✖ Cancel**
+  button (for a monthly one, Cancel stops the series).
 - **🌍 Timezone** (or `/timezone [IANA]`) → view or change your timezone.
 
 ### Commands
@@ -131,8 +142,8 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 | Command | Purpose |
 |---|---|
 | `/start` | Register and show the menu |
-| `/remind` | Create a reminder |
-| `/list` | List active reminders (with inline ✅ Done / ✖ Cancel) |
+| `/remind` | Create a reminder (one-time or monthly) |
+| `/list` | List active reminders (with an inline ✖ Cancel on each) |
 | `/timezone [IANA]` | View or set your timezone |
 | `/language` | Switch between English and Ukrainian |
 | `/help` | Usage help |
@@ -153,7 +164,8 @@ query, and input parsing — no token or network required.
 - SQLite via stdlib `sqlite3`; `datetime` + `zoneinfo` for timezones
 - Long-polling (`getUpdates`) — works behind NAT, no public endpoint
 
-## Out of scope for v1
+## Out of scope
 
-Natural-language dates, recurring reminders, customizable offsets, and shared lists are
-future extensions (see `telegram-reminder-bot-spec.md` §11).
+Natural-language dates, customizable offsets, and shared lists are future extensions
+(see `telegram-reminder-bot-spec.md` §11). Recurrence beyond monthly — weekly, yearly,
+"every N months", or "nth weekday" — is designed for but not yet implemented.

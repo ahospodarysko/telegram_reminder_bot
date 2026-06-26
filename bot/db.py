@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS reminders (
     type       TEXT NOT NULL DEFAULT 'timed',
     due_at_utc TEXT,
     status     TEXT NOT NULL DEFAULT 'active',
+    recurrence TEXT NOT NULL DEFAULT 'none',
+    anchor_day INTEGER,
     created_at TEXT NOT NULL
 );
 
@@ -76,9 +78,15 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after a DB may already have been created."""
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
-    if "language" not in columns:
+    user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "language" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
+
+    reminder_columns = {row["name"] for row in conn.execute("PRAGMA table_info(reminders)")}
+    if "recurrence" not in reminder_columns:
+        conn.execute("ALTER TABLE reminders ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'none'")
+    if "anchor_day" not in reminder_columns:
+        conn.execute("ALTER TABLE reminders ADD COLUMN anchor_day INTEGER")
 
 
 # --- users ---------------------------------------------------------------------------
@@ -132,8 +140,13 @@ def add_reminder(
     occurrences: list[tuple[str, datetime]],
     now_utc: datetime,
     type_: str = "timed",
+    recurrence: str = "none",
+    anchor_day: int | None = None,
 ) -> int:
     """Insert a reminder and its occurrence rows in a single transaction.
+
+    ``recurrence`` is ``'none'`` (one-shot) or ``'monthly'``; ``anchor_day`` is the 1–31
+    day-of-month to repeat on (``None`` for one-shot).
 
     Returns:
         The new reminder's id.
@@ -141,10 +154,12 @@ def add_reminder(
     with conn:
         cur = conn.execute(
             """
-            INSERT INTO reminders (chat_id, text, type, due_at_utc, status, created_at)
-            VALUES (?, ?, ?, ?, 'active', ?)
+            INSERT INTO reminders
+                (chat_id, text, type, due_at_utc, status, recurrence, anchor_day, created_at)
+            VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
             """,
-            (chat_id, text, type_, to_db(due_at_utc) if due_at_utc else None, to_db(now_utc)),
+            (chat_id, text, type_, to_db(due_at_utc) if due_at_utc else None,
+             recurrence, anchor_day, to_db(now_utc)),
         )
         reminder_id = int(cur.lastrowid)
         _insert_occurrences(conn, reminder_id, occurrences)
@@ -155,7 +170,7 @@ def get_active_reminders(conn: sqlite3.Connection, chat_id: int) -> list[sqlite3
     """Return a user's active reminders, soonest deadline first."""
     return conn.execute(
         """
-        SELECT id, chat_id, text, type, due_at_utc, status, created_at
+        SELECT id, chat_id, text, type, due_at_utc, status, recurrence, anchor_day, created_at
         FROM reminders
         WHERE chat_id = ? AND status = 'active'
         ORDER BY due_at_utc IS NULL, due_at_utc ASC
@@ -168,7 +183,7 @@ def get_reminder(conn: sqlite3.Connection, reminder_id: int) -> sqlite3.Row | No
     """Return a single reminder row by id, or ``None``."""
     return conn.execute(
         """
-        SELECT id, chat_id, text, type, due_at_utc, status, created_at
+        SELECT id, chat_id, text, type, due_at_utc, status, recurrence, anchor_day, created_at
         FROM reminders WHERE id = ?
         """,
         (reminder_id,),
@@ -181,6 +196,48 @@ def set_status(conn: sqlite3.Connection, reminder_id: int, status: str) -> None:
         conn.execute(
             "UPDATE reminders SET status = ? WHERE id = ?", (status, reminder_id)
         )
+
+
+def get_due_recurring(conn: sqlite3.Connection, now_utc: datetime) -> list[sqlite3.Row]:
+    """Return active recurring reminders whose deadline has passed (need rolling forward).
+
+    Joins the owner's timezone so the caller can recompute the next local deadline.
+    """
+    return conn.execute(
+        """
+        SELECT
+            r.id         AS reminder_id,
+            r.due_at_utc AS due_at_utc,
+            r.anchor_day AS anchor_day,
+            u.timezone   AS timezone
+        FROM reminders r
+        JOIN users u ON u.chat_id = r.chat_id
+        WHERE r.status = 'active'
+          AND r.recurrence != 'none'
+          AND r.due_at_utc <= ?
+        ORDER BY r.due_at_utc ASC
+        """,
+        (to_db(now_utc),),
+    ).fetchall()
+
+
+def advance_recurring(
+    conn: sqlite3.Connection,
+    reminder_id: int,
+    next_due_utc: datetime,
+    occurrences: list[tuple[str, datetime]],
+) -> None:
+    """Roll a recurring reminder to its next cycle: new deadline + fresh occurrence rows.
+
+    Done in one transaction. Past (sent) occurrence rows are left in place; only the new
+    cycle's pings are inserted (unsent), so :func:`get_pending_occurrences` reflects them.
+    """
+    with conn:
+        conn.execute(
+            "UPDATE reminders SET due_at_utc = ? WHERE id = ?",
+            (to_db(next_due_utc), reminder_id),
+        )
+        _insert_occurrences(conn, reminder_id, occurrences)
 
 
 # --- occurrences ---------------------------------------------------------------------
@@ -213,6 +270,7 @@ def get_due_occurrences(conn: sqlite3.Connection, now_utc: datetime) -> list[sql
             r.id          AS reminder_id,
             r.text        AS text,
             r.due_at_utc  AS due_at_utc,
+            r.recurrence  AS recurrence,
             r.chat_id     AS chat_id,
             u.timezone    AS timezone,
             u.language    AS language
