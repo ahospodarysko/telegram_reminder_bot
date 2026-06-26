@@ -15,9 +15,24 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from . import db, i18n
-from .scheduling import utcnow
+from .scheduling import next_monthly_due, plan_occurrences, utcnow
 
 logger = logging.getLogger(__name__)
+
+
+def roll_recurring(
+    conn, reminder_id: int, due_at_utc_str: str, anchor_day: int, tz_name: str, now_utc
+):
+    """Advance a due recurring reminder to its next cycle; return the new deadline (UTC).
+
+    Computes the next monthly deadline (DST-correct, short-month clamped, catching up past
+    several months if needed), plans that cycle's pings, and persists both atomically.
+    """
+    prev_due = db.from_db(due_at_utc_str)
+    next_due = next_monthly_due(prev_due, anchor_day, tz_name, now_utc)
+    occurrences = plan_occurrences(next_due, now_utc, tz_name)
+    db.advance_recurring(conn, reminder_id, next_due, occurrences)
+    return next_due
 
 
 def _format_ping(row) -> str:
@@ -42,11 +57,12 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     due = db.get_due_occurrences(conn, now)
     for row in due:
         lang = i18n.normalize_lang(row["language"])
+        recurring = row["recurrence"] != "none"
         try:
             await context.bot.send_message(
                 chat_id=row["chat_id"],
                 text=_format_ping(row),
-                reply_markup=reminder_actions(row["reminder_id"], lang),
+                reply_markup=reminder_actions(row["reminder_id"], lang, recurring=recurring),
             )
         except Forbidden:
             # User blocked or deleted the chat — give up on this ping so it stops retrying.
@@ -57,3 +73,12 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.exception("Failed to send occurrence %s; will retry", row["occurrence_id"])
         else:
             db.mark_sent(conn, row["occurrence_id"])
+
+    # After sending due pings, roll any recurring reminder whose deadline has passed onto
+    # its next cycle. Kept in the same tick so the whole mechanism is restart-safe.
+    for rec in db.get_due_recurring(conn, now):
+        try:
+            roll_recurring(conn, rec["reminder_id"], rec["due_at_utc"],
+                           rec["anchor_day"], rec["timezone"], now)
+        except Exception:  # noqa: BLE001 - one bad reminder shouldn't stop the rest.
+            logger.exception("Failed to roll recurring reminder %s", rec["reminder_id"])
