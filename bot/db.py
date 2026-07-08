@@ -198,6 +198,42 @@ def set_status(conn: sqlite3.Connection, reminder_id: int, status: str) -> None:
         )
 
 
+def purge_expired_reminders(conn: sqlite3.Connection, cutoff_utc: datetime) -> int:
+    """Delete one-shot reminders (and their occurrences) whose deadline passed before
+    ``cutoff_utc``.
+
+    A reminder that still has an unsent occurrence is kept — the scheduler sends
+    overdue pings (late, never lost) before anything is purged. Recurring reminders are
+    never purged; they roll forward until cancelled.
+
+    Returns:
+        The number of reminders deleted.
+    """
+    with conn:
+        ids = [
+            row["id"]
+            for row in conn.execute(
+                """
+                SELECT r.id FROM reminders r
+                WHERE r.recurrence = 'none'
+                  AND r.due_at_utc IS NOT NULL
+                  AND r.due_at_utc <= ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM occurrences o
+                      WHERE o.reminder_id = r.id AND o.sent = 0
+                  )
+                """,
+                (to_db(cutoff_utc),),
+            )
+        ]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(f"DELETE FROM occurrences WHERE reminder_id IN ({placeholders})", ids)
+        conn.execute(f"DELETE FROM reminders WHERE id IN ({placeholders})", ids)
+    return len(ids)
+
+
 def get_due_recurring(conn: sqlite3.Connection, now_utc: datetime) -> list[sqlite3.Row]:
     """Return active recurring reminders whose deadline has passed (need rolling forward).
 

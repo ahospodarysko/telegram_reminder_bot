@@ -26,8 +26,12 @@ tap rather than type for almost everything.
 - **Monthly reminders:** pick *Monthly* when creating a reminder and give just a day +
   time (e.g. `Pay rent @ 5 09:00`). It fires every month on that day; short months clamp
   to the last day (a 31st becomes 28/29 Feb, 30 Apr…). The deadline is recomputed in
-  local time each cycle, so the wall-clock time stays put across DST. **Done (this cycle)**
-  rolls it to next month; **Stop repeating** ends the series.
+  local time each cycle, so the wall-clock time stays put across DST. The series rolls
+  forward automatically each month until you tap **Stop repeating** on a ping (or
+  **Cancel** in `/list`).
+- **Auto-cleanup:** a one-time reminder whose deadline has passed stays in `/list` for
+  **5 days** (with a note showing when it will disappear), then is deleted automatically.
+  Monthly reminders are never auto-deleted — they repeat until stopped.
 - **Quiet hours:** no ping fires between **22:00 and 08:00** in the user's local time.
   Any ping that would land in that window is pushed to 08:00 that morning (e.g. a 2h-ahead
   ping for a 09:00 deadline moves from 07:00 to 08:00). Pings that collapse onto the same

@@ -53,7 +53,6 @@ TEXT: dict[str, dict[str, str]] = {
         # buttons — inline
         "btn_done": "✅ Done",
         "btn_cancel": "✖ Cancel",
-        "btn_done_cycle": "✅ Done (this cycle)",
         "btn_stop_repeating": "🛑 Stop repeating",
         "btn_type_monthly": "🔁 Monthly",
         "btn_type_basic": "🔔 Basic",
@@ -76,17 +75,30 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "help": (
             "🤖 *Reminder bot*\n\n"
-            "Save a note with a deadline and I'll ping you *24h and 2h before* it.\n"
-            "Reminders can be *one-time* or *monthly* (repeats on the same day each month).\n\n"
-            "*Commands*\n"
-            "• /remind — new reminder (choose one-time or monthly)\n"
-            "• /list — list active reminders (tap ✖ Cancel to remove)\n"
-            "• /timezone `[IANA]` — view or set timezone\n"
-            "• /language — change language\n\n"
-            "*One-time:* `{hint}`\n"
+            "Save a note with a deadline and I'll ping you *24h and 2h before* it. "
+            "If the deadline is closer than that, you get one ping at the deadline "
+            "instead. Pings that would land at night (22:00–08:00) are moved to 08:00. "
+            "All times use *your* timezone and a 24-hour clock.\n\n"
+            "*Reminder types* — tap ➕ New reminder (or /remind), then choose:\n\n"
+            "🔔 *Basic* — one-time, for a specific date.\n"
+            "Send: `{hint}`\n"
             "_Example:_ `{example}`\n"
-            "*Monthly:* tap ➕ New reminder → Monthly, then send `note @ Day HH:MM`.\n"
-            "The year is assumed; month names work in English or Ukrainian."
+            "→ pings 20 Jun 16:00 and 21 Jun 14:00. The year is filled in automatically "
+            "(rolls to next year if that date has passed); month names work in English "
+            "or Ukrainian. After the deadline it stays in /list for 5 more days, then "
+            "deletes itself.\n\n"
+            "🔁 *Monthly* — repeats on the same day every month.\n"
+            "Send: `{hint_monthly}` — just a day and time, no month.\n"
+            "_Example:_ `{example_monthly}`\n"
+            "→ pings before the 5th of every month. Day 31 becomes the last day of "
+            "shorter months. It keeps repeating on its own until you tap 🛑 *Stop "
+            "repeating* on a ping (or ✖ Cancel in /list).\n\n"
+            "*Commands*\n"
+            "• /remind — create a reminder (Basic or Monthly)\n"
+            "• /list — active reminders with their upcoming pings (✖ Cancel removes one)\n"
+            "• /timezone `[IANA]` — view or set your timezone, e.g. `/timezone Europe/Kyiv`\n"
+            "• /language — switch English / Українська\n"
+            "• /help — this message"
         ),
         # new reminder
         "choose_reminder_type": "🆕 Choose reminder type:",
@@ -120,6 +132,7 @@ TEXT: dict[str, dict[str, str]] = {
             "🔁 *{text}*\n🔄 Repeats {rule}"
         ),
         "list_no_pending": "all sent",
+        "list_autodelete": "🗑 _Deadline passed — auto-deletes {when}._",
         "no_deadline_word": "no deadline",
         # timezone
         "tz_prompt": (
@@ -143,8 +156,6 @@ TEXT: dict[str, dict[str, str]] = {
         "cb_gone": "That reminder no longer exists.",
         "cb_done_msg": "✅ Done: “{text}”",
         "cb_cancelled_msg": "✖ Cancelled: “{text}”",
-        "cb_done_cycle": "Done for this cycle ✅",
-        "cb_done_cycle_msg": "✅ Done for this cycle: “{text}”\n🔁 Next: {next}",
         # pings
         "ping_due_now": "🔔 Reminder — “{text}” is due now.",
         "ping_due_before": "⏰ Reminder — “{text}” is coming up (due {due}).",
@@ -174,7 +185,6 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_help": "❓ Допомога",
         "btn_done": "✅ Завершити",
         "btn_cancel": "✖ Скасувати",
-        "btn_done_cycle": "✅ Завершити (цей місяць)",
         "btn_stop_repeating": "🛑 Зупинити повтор",
         "btn_type_monthly": "🔁 Щомісячне",
         "btn_type_basic": "🔔 Стандартне",
@@ -194,18 +204,30 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "help": (
             "🤖 *Бот нагадувань*\n\n"
-            "Збережіть нотатку з дедлайном, і я нагадаю *за 24 години та за 2 години* до "
-            "нього.\n"
-            "Нагадування бувають *разові* або *щомісячні* (повторюються того ж числа щомісяця).\n\n"
-            "*Команди*\n"
-            "• /remind — нове нагадування (разове або щомісячне)\n"
-            "• /list — список активних нагадувань (✖ Скасувати, щоб видалити)\n"
-            "• /timezone `[IANA]` — переглянути чи задати часовий пояс\n"
-            "• /language — змінити мову\n\n"
-            "*Разове:* `{hint}`\n"
+            "Збережіть нотатку з дедлайном — я нагадаю *за 24 години та за 2 години* до "
+            "нього. Якщо до дедлайну лишилося менше часу, надійде одне нагадування в сам "
+            "дедлайн. Нагадування, що припадають на ніч (22:00–08:00), переносяться на "
+            "08:00. Усі часи — у *вашому* часовому поясі, формат 24-годинний.\n\n"
+            "*Типи нагадувань* — натисніть ➕ Нове нагадування (або /remind) і оберіть:\n\n"
+            "🔔 *Стандартне* — разове, на конкретну дату.\n"
+            "Надішліть: `{hint}`\n"
             "_Приклад:_ `{example}`\n"
-            "*Щомісячне:* натисніть ➕ Нове нагадування → Щомісячне, далі `текст @ День ГГ:ХХ`.\n"
-            "Рік підставляється автоматично; назви місяців — українською або англійською."
+            "→ нагадаю 20 чер 16:00 та 21 чер 14:00. Рік підставляється автоматично "
+            "(якщо дата вже минула — наступний рік); назви місяців — українською або "
+            "англійською. Після дедлайну воно ще 5 днів лишається у /list, а потім "
+            "видаляється автоматично.\n\n"
+            "🔁 *Щомісячне* — повторюється того самого числа щомісяця.\n"
+            "Надішліть: `{hint_monthly}` — лише число й час, без місяця.\n"
+            "_Приклад:_ `{example_monthly}`\n"
+            "→ нагадування перед 5-м числом щомісяця. 31-ше у коротких місяцях стає "
+            "останнім днем. Повторюється автоматично, доки ви не натиснете 🛑 *Зупинити "
+            "повтор* у нагадуванні (або ✖ Скасувати у /list).\n\n"
+            "*Команди*\n"
+            "• /remind — створити нагадування (Стандартне чи Щомісячне)\n"
+            "• /list — активні нагадування з часом пінгів (✖ Скасувати — видалити)\n"
+            "• /timezone `[IANA]` — переглянути чи змінити часовий пояс, напр. `/timezone Europe/Kyiv`\n"
+            "• /language — змінити мову (English / Українська)\n"
+            "• /help — це повідомлення"
         ),
         "choose_reminder_type": "🆕 Оберіть тип нагадування:",
         "new_prompt": (
@@ -236,6 +258,7 @@ TEXT: dict[str, dict[str, str]] = {
             "🔁 *{text}*\n🔄 Повторюється {rule}"
         ),
         "list_no_pending": "усі надіслані",
+        "list_autodelete": "🗑 _Дедлайн минув — буде видалено автоматично {when}._",
         "no_deadline_word": "без дедлайну",
         "tz_prompt": (
             "🌍 Ваш часовий пояс — *{tz}*.\n\n"
@@ -256,8 +279,6 @@ TEXT: dict[str, dict[str, str]] = {
         "cb_gone": "Цього нагадування більше не існує.",
         "cb_done_msg": "✅ Готово: «{text}»",
         "cb_cancelled_msg": "✖ Скасовано: «{text}»",
-        "cb_done_cycle": "Завершено на цей місяць ✅",
-        "cb_done_cycle_msg": "✅ Завершено на цей місяць: «{text}»\n🔁 Наступне: {next}",
         "ping_due_now": "🔔 Нагадування — «{text}» час настав.",
         "ping_due_before": "⏰ Нагадування — «{text}» незабаром (дедлайн {due}).",
         "err_missing_separator": (

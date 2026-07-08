@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from bot import db, i18n
 from bot.scheduler import roll_recurring
 from bot.scheduling import (
+    EXPIRED_RETENTION,
     ParseError,
     compute_occurrences,
     local_to_utc,
@@ -302,6 +303,56 @@ class RollForwardTests(unittest.TestCase):
         self.assertEqual(db.from_db(r["due_at_utc"]), next_due)
         self.assertEqual(r["status"], "active")
         self.assertTrue(db.get_pending_occurrences(self.conn, rid))
+
+
+class PurgeExpiredTests(unittest.TestCase):
+    def setUp(self):
+        self.conn = db.connect(":memory:")
+        db.init_db(self.conn)
+        self.now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+        self.cutoff = self.now - EXPIRED_RETENTION
+        db.upsert_user(self.conn, 1, "UTC", self.now)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _add_one_shot(self, due, occurrences=(), sent=True):
+        rid = db.add_reminder(self.conn, 1, "Once", due, list(occurrences), self.now)
+        if sent:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE occurrences SET sent = 1 WHERE reminder_id = ?", (rid,)
+                )
+        return rid
+
+    def test_purges_past_retention_with_occurrences_removed(self):
+        due = self.now - EXPIRED_RETENTION - timedelta(hours=1)
+        rid = self._add_one_shot(due, [("-2h", due - timedelta(hours=2))])
+        self.assertEqual(db.purge_expired_reminders(self.conn, self.cutoff), 1)
+        self.assertIsNone(db.get_reminder(self.conn, rid))
+        count = self.conn.execute(
+            "SELECT COUNT(*) FROM occurrences WHERE reminder_id = ?", (rid,)
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_keeps_within_retention(self):
+        rid = self._add_one_shot(self.now - timedelta(days=2))
+        self.assertEqual(db.purge_expired_reminders(self.conn, self.cutoff), 0)
+        self.assertIsNotNone(db.get_reminder(self.conn, rid))
+
+    def test_keeps_unsent_occurrence(self):
+        # An unsent ping means the send loop hasn't caught up yet — never drop it.
+        due = self.now - EXPIRED_RETENTION - timedelta(hours=1)
+        rid = self._add_one_shot(due, [("-2h", due - timedelta(hours=2))], sent=False)
+        self.assertEqual(db.purge_expired_reminders(self.conn, self.cutoff), 0)
+        self.assertIsNotNone(db.get_reminder(self.conn, rid))
+
+    def test_keeps_recurring(self):
+        due = self.now - EXPIRED_RETENTION - timedelta(days=30)
+        rid = db.add_reminder(self.conn, 1, "Rent", due, [], self.now,
+                              recurrence="monthly", anchor_day=5)
+        self.assertEqual(db.purge_expired_reminders(self.conn, self.cutoff), 0)
+        self.assertIsNotNone(db.get_reminder(self.conn, rid))
 
 
 class QuietHoursTests(unittest.TestCase):

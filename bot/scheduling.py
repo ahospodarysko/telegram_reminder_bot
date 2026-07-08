@@ -20,6 +20,11 @@ OFFSETS: list[tuple[str, timedelta]] = [
     ("-2h", timedelta(hours=2)),
 ]
 
+# How long a passed one-shot reminder stays visible in /list after its deadline before
+# it is deleted automatically. Recurring reminders are never auto-deleted — they roll
+# forward until the user stops them.
+EXPIRED_RETENTION = timedelta(days=5)
+
 # Input format for v1 reminder creation: "note text @ Month Day HH:MM" (24-hour time).
 # The year is omitted — it defaults to the current year, rolling to next year if that
 # date/time has already passed (see parse_reminder_input). The separator is matched on

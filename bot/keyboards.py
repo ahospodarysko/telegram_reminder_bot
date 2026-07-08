@@ -30,16 +30,19 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
 def reminder_actions(reminder_id: int, lang: str, recurring: bool = False) -> InlineKeyboardMarkup:
     """Inline action buttons under a reminder.
 
-    One-shot: Done / Cancel. Recurring: the labels become "Done (this cycle)" — which
-    rolls the series forward — and "Stop repeating", which ends it. The ``callback_data``
-    actions stay ``done`` / ``cancel``; the handler branches on the reminder's recurrence.
+    One-shot: Done / Cancel. Recurring: a single "Stop repeating" button — the series
+    rolls forward automatically each cycle until the user stops it, so there is no
+    per-cycle Done.
     """
-    done_key = "btn_done_cycle" if recurring else "btn_done"
-    cancel_key = "btn_stop_repeating" if recurring else "btn_cancel"
+    if recurring:
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(i18n.t(lang, "btn_stop_repeating"),
+                                   callback_data=f"cancel:{reminder_id}")]]
+        )
     return InlineKeyboardMarkup(
         [[
-            InlineKeyboardButton(i18n.t(lang, done_key), callback_data=f"done:{reminder_id}"),
-            InlineKeyboardButton(i18n.t(lang, cancel_key), callback_data=f"cancel:{reminder_id}"),
+            InlineKeyboardButton(i18n.t(lang, "btn_done"), callback_data=f"done:{reminder_id}"),
+            InlineKeyboardButton(i18n.t(lang, "btn_cancel"), callback_data=f"cancel:{reminder_id}"),
         ]]
     )
 

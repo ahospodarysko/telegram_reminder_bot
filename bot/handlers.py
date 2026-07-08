@@ -24,8 +24,8 @@ from telegram.ext import (
 
 from . import db, i18n, keyboards
 from .config import default_timezone
-from .scheduler import roll_recurring
 from .scheduling import (
+    EXPIRED_RETENTION,
     ParseError,
     is_valid_timezone,
     local_to_utc,
@@ -226,6 +226,10 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             body = i18n.t(lang, "list_item_recurring", text=r["text"], when=when, rule=rule, pings=pings)
         else:
             body = i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings)
+            if due and due <= utcnow():
+                # Passed one-shot: note when the scheduler will auto-delete it.
+                delete_at = i18n.format_when(due + EXPIRED_RETENTION, tz_name, lang)
+                body += "\n" + i18n.t(lang, "list_autodelete", when=delete_at)
         await update.message.reply_text(
             body,
             parse_mode=ParseMode.MARKDOWN,
@@ -278,7 +282,14 @@ async def _set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_n
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _user_lang(context, update.effective_chat.id)
     await update.message.reply_text(
-        i18n.t(lang, "help", **_format_hint(lang)), parse_mode=ParseMode.MARKDOWN
+        i18n.t(
+            lang,
+            "help",
+            **_format_hint(lang),
+            hint_monthly=i18n.t(lang, "input_hint_monthly"),
+            example_monthly=i18n.t(lang, "input_example_monthly"),
+        ),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
@@ -342,22 +353,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if action == "done":
-        if row["recurrence"] != "none":
-            # Done on a recurring reminder = "done for this cycle": roll it forward and
-            # keep it active. Stopping the series is the Cancel ("Stop repeating") button.
-            tz_name = _user_tz(context, chat_id)
-            next_due = roll_recurring(
-                _conn(context), reminder_id, row["due_at_utc"], row["anchor_day"], tz_name, utcnow()
-            )
-            await query.answer(i18n.t(lang, "cb_done_cycle"))
-            await query.edit_message_text(i18n.t(
-                lang, "cb_done_cycle_msg",
-                text=row["text"], next=i18n.format_when(next_due, tz_name, lang),
-            ))
-        else:
-            db.set_status(_conn(context), reminder_id, "done")
-            await query.answer(i18n.t(lang, "cb_done"))
-            await query.edit_message_text(i18n.t(lang, "cb_done_msg", text=row["text"]))
+        db.set_status(_conn(context), reminder_id, "done")
+        await query.answer(i18n.t(lang, "cb_done"))
+        await query.edit_message_text(i18n.t(lang, "cb_done_msg", text=row["text"]))
     elif action == "cancel":
         db.set_status(_conn(context), reminder_id, "cancelled")
         await query.answer(i18n.t(lang, "cb_cancelled"))

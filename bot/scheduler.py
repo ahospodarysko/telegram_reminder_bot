@@ -15,7 +15,7 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from . import db, i18n
-from .scheduling import next_monthly_due, plan_occurrences, utcnow
+from .scheduling import EXPIRED_RETENTION, next_monthly_due, plan_occurrences, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +82,10 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
                            rec["anchor_day"], rec["timezone"], now)
         except Exception:  # noqa: BLE001 - one bad reminder shouldn't stop the rest.
             logger.exception("Failed to roll recurring reminder %s", rec["reminder_id"])
+
+    # Finally, delete one-shot reminders whose deadline passed the retention window.
+    # Runs after the send loop, so even a long-overdue ping goes out before its
+    # reminder can be purged.
+    purged = db.purge_expired_reminders(conn, now - EXPIRED_RETENTION)
+    if purged:
+        logger.info("Purged %d expired reminder(s)", purged)
