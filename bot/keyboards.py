@@ -27,13 +27,48 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def reminder_actions(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
-    """Inline Done / Cancel buttons attached under a reminder."""
+def reminder_actions(reminder_id: int, lang: str, recurrence: str = "none") -> InlineKeyboardMarkup:
+    """Inline action buttons under a reminder ping, chosen by recurrence type.
+
+    One-shot: Done / Close. Note: a single "Done" — the nudges repeat until the user
+    finishes the note. Monthly: a single "Stop repeating" — the series rolls forward
+    automatically each cycle until the user stops it, so there is no per-cycle Done.
+    """
+    if recurrence == "note":
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(i18n.t(lang, "btn_done"),
+                                   callback_data=f"done:{reminder_id}")]]
+        )
+    if recurrence != "none":
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(i18n.t(lang, "btn_stop_repeating"),
+                                   callback_data=f"cancel:{reminder_id}")]]
+        )
     return InlineKeyboardMarkup(
         [[
             InlineKeyboardButton(i18n.t(lang, "btn_done"), callback_data=f"done:{reminder_id}"),
             InlineKeyboardButton(i18n.t(lang, "btn_cancel"), callback_data=f"cancel:{reminder_id}"),
         ]]
+    )
+
+
+def reminder_cancel_action(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
+    """A single Close button — used in /list for both one-shot and recurring reminders."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(i18n.t(lang, "btn_cancel"), callback_data=f"cancel:{reminder_id}")]]
+    )
+
+
+def reminder_type_picker(lang: str) -> InlineKeyboardMarkup:
+    """Inline buttons to choose a reminder type (callback ``newtype:monthly|basic|note``)."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(i18n.t(lang, "btn_type_basic"), callback_data="newtype:basic"),
+                InlineKeyboardButton(i18n.t(lang, "btn_type_monthly"), callback_data="newtype:monthly"),
+            ],
+            [InlineKeyboardButton(i18n.t(lang, "btn_type_note"), callback_data="newtype:note")],
+        ]
     )
 
 

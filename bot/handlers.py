@@ -25,11 +25,15 @@ from telegram.ext import (
 from . import db, i18n, keyboards
 from .config import default_timezone
 from .scheduling import (
+    EXPIRED_RETENTION,
+    MONTHLY_OFFSETS,
+    NOTE_INTERVAL,
     ParseError,
     is_valid_timezone,
     local_to_utc,
     parse_reminder_input,
     plan_occurrences,
+    shift_out_of_quiet_hours,
     utc_to_local,
     utcnow,
 )
@@ -59,17 +63,38 @@ def _user_lang(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
     return i18n.normalize_lang(user["language"] if user else None)
 
 
-def _confirmation(lang: str, tz: str, note: str, due_at_utc, occurrences) -> str:
-    """Build the localized confirmation echo for a created reminder."""
+def _confirmation(
+    lang: str, tz: str, note: str, due_at_utc, occurrences,
+    recurrence: str = "none", anchor_day: int | None = None,
+) -> str:
+    """Build the localized confirmation echo for a created reminder.
+
+    Recurring reminders gain a "Repeats …" rule line and show the *next* cycle's pings.
+    """
     due = i18n.format_when(due_at_utc, tz, lang)
+    pings = "; ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
+    if recurrence != "none":
+        rule = _recurrence_rule(lang, anchor_day)
+        if occurrences:
+            return i18n.t(lang, "confirm_recurring", note=note, rule=rule, due=due, tz=tz, pings=pings)
+        return i18n.t(lang, "confirm_recurring_none", note=note, rule=rule, due=due, tz=tz)
     if occurrences:
-        pings = ", ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
         return i18n.t(lang, "confirm_ok", note=note, due=due, tz=tz, pings=pings)
     return i18n.t(lang, "confirm_none", note=note, due=due, tz=tz)
 
 
-def _format_hint(lang: str) -> dict[str, str]:
-    """The input hint + example for a language (passed to error/prompt templates)."""
+def _recurrence_rule(lang: str, anchor_day: int | None, recurrence: str = "monthly") -> str:
+    """The localized repeat-rule line for a recurring reminder."""
+    if recurrence == "note":
+        return i18n.t(lang, "recur_note_desc")
+    return i18n.t(lang, "recur_monthly_desc", day=anchor_day)
+
+
+def _format_hint(lang: str, rtype: str = "basic") -> dict[str, str]:
+    """The input hint + example for a language/type (passed to error/prompt templates)."""
+    if rtype == "monthly":
+        return {"hint": i18n.t(lang, "input_hint_monthly"),
+                "example": i18n.t(lang, "input_example_monthly")}
     return {"hint": i18n.t(lang, "input_hint"), "example": i18n.t(lang, "input_example")}
 
 
@@ -113,18 +138,29 @@ async def _choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE, l
 
 # --- new reminder flow ---------------------------------------------------------------
 
-def _begin_new_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
-    """Mark that the next text message is a reminder; return the localized prompt text."""
+def _show_type_picker(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> tuple[str, object]:
+    """Clear any in-progress flow and return the (text, keyboard) for the type chooser."""
+    context.user_data.pop("awaiting_timezone", None)
+    context.user_data.pop("awaiting_reminder", None)
+    context.user_data.pop("reminder_type", None)
+    lang = _user_lang(context, chat_id)
+    return i18n.t(lang, "choose_reminder_type"), keyboards.reminder_type_picker(lang)
+
+
+def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtype: str) -> str:
+    """Arm the create flow for a chosen type; return the type-specific prompt text."""
     context.user_data["awaiting_reminder"] = True
+    context.user_data["reminder_type"] = rtype
     context.user_data.pop("awaiting_timezone", None)
     lang = _user_lang(context, chat_id)
-    return i18n.t(lang, "new_prompt", **_format_hint(lang))
+    key = {"monthly": "new_prompt_monthly", "note": "new_prompt_note"}.get(rtype, "new_prompt")
+    return i18n.t(lang, key, **_format_hint(lang, rtype))
 
 
 async def new_reminder_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Prompt for reminder input (via /remind or the menu button)."""
-    prompt = _begin_new_reminder(context, update.effective_chat.id)
-    await update.message.reply_text(prompt, parse_mode=ParseMode.MARKDOWN)
+    """Show the reminder-type chooser (via /remind or the menu button)."""
+    text, keyboard = _show_type_picker(context, update.effective_chat.id)
+    await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
@@ -135,23 +171,51 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     lang = _user_lang(context, chat_id)
     now = utcnow()
     now_local = utc_to_local(now, tz_name).replace(tzinfo=None)
-    try:
-        note, naive_local = parse_reminder_input(text, now_local)
-        due_at_utc = local_to_utc(naive_local, tz_name)
-    except ParseError as exc:
-        # Keep awaiting_reminder set so the user can simply retry.
+    rtype = context.user_data.get("reminder_type", "basic")
+
+    if rtype == "note":
+        # A note is just text — no date to parse. Its "deadline" is simply the next
+        # nudge, which the scheduler keeps rolling forward every NOTE_INTERVAL.
+        note = text.strip()
+        if not note:
+            await update.message.reply_text(i18n.t(lang, "err_empty_note_text"))
+            return
+        first = shift_out_of_quiet_hours(now + NOTE_INTERVAL, tz_name)
+        db.add_reminder(conn, chat_id, note, first, [("note", first)], now,
+                        recurrence="note")
+        context.user_data.pop("awaiting_reminder", None)
+        context.user_data.pop("reminder_type", None)
         await update.message.reply_text(
-            i18n.t(lang, f"err_{exc.code}", **_format_hint(lang)), parse_mode=ParseMode.MARKDOWN
+            i18n.t(lang, "confirm_note", note=note,
+                   first=i18n.format_when(first, tz_name, lang)),
+            reply_markup=keyboards.new_reminder_button(lang),
         )
         return
 
-    occurrences = plan_occurrences(due_at_utc, now, tz_name)
-    db.add_reminder(conn, chat_id, note, due_at_utc, occurrences, now)
+    force = "monthly" if rtype == "monthly" else "none"
+    try:
+        parsed = parse_reminder_input(text, now_local, force_recurrence=force)
+        due_at_utc = local_to_utc(parsed.when, tz_name)
+    except ParseError as exc:
+        # Keep awaiting_reminder + reminder_type set so the user can simply retry.
+        await update.message.reply_text(
+            i18n.t(lang, f"err_{exc.code}", **_format_hint(lang, rtype)), parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    if parsed.recurrence != "none":
+        occurrences = plan_occurrences(due_at_utc, now, tz_name, MONTHLY_OFFSETS)
+    else:
+        occurrences = plan_occurrences(due_at_utc, now, tz_name)
+    db.add_reminder(conn, chat_id, parsed.note, due_at_utc, occurrences, now,
+                    recurrence=parsed.recurrence, anchor_day=parsed.anchor_day)
     context.user_data.pop("awaiting_reminder", None)
+    context.user_data.pop("reminder_type", None)
     # Only a "New reminder" shortcut on the echo — no Done/Cancel (those read like a
     # "save" button). Done/Cancel live in /list and on the ping notifications.
     await update.message.reply_text(
-        _confirmation(lang, tz_name, note, due_at_utc, occurrences),
+        _confirmation(lang, tz_name, parsed.note, due_at_utc, occurrences,
+                      parsed.recurrence, parsed.anchor_day),
         reply_markup=keyboards.new_reminder_button(lang),
     )
 
@@ -175,14 +239,28 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         due = db.from_db(r["due_at_utc"]) if r["due_at_utc"] else None
         when = i18n.format_when(due, tz_name, lang) if due else i18n.t(lang, "no_deadline_word")
         pending = db.get_pending_occurrences(conn, r["id"])
-        pings = (
-            ", ".join(i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang) for o in pending)
-            if pending else i18n.t(lang, "list_no_pending")
-        )
+        if pending:
+            # One ping per line, bulleted — reads as a column under the label.
+            pings = "".join(
+                "\n• " + i18n.format_when(db.from_db(o["fire_at_utc"]), tz_name, lang)
+                for o in pending
+            )
+        else:
+            pings = " " + i18n.t(lang, "list_no_pending")
+        recurring = r["recurrence"] != "none"
+        if recurring and due:
+            rule = _recurrence_rule(lang, r["anchor_day"], r["recurrence"])
+            body = i18n.t(lang, "list_item_recurring", text=r["text"], when=when, rule=rule, pings=pings)
+        else:
+            body = i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings)
+            if due and due <= utcnow():
+                # Passed one-shot: note when the scheduler will auto-delete it.
+                delete_at = i18n.format_when(due + EXPIRED_RETENTION, tz_name, lang)
+                body += "\n" + i18n.t(lang, "list_autodelete", when=delete_at)
         await update.message.reply_text(
-            i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings),
+            body,
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=keyboards.reminder_actions(r["id"], lang),
+            reply_markup=keyboards.reminder_cancel_action(r["id"], lang),
         )
 
 
@@ -206,6 +284,7 @@ async def _prompt_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     lang = _user_lang(context, chat_id)
     context.user_data["awaiting_timezone"] = True
     context.user_data.pop("awaiting_reminder", None)
+    context.user_data.pop("reminder_type", None)
     await update.message.reply_text(
         i18n.t(lang, "tz_prompt", tz=_user_tz(context, chat_id)), parse_mode=ParseMode.MARKDOWN
     )
@@ -230,7 +309,14 @@ async def _set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_n
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _user_lang(context, update.effective_chat.id)
     await update.message.reply_text(
-        i18n.t(lang, "help", **_format_hint(lang)), parse_mode=ParseMode.MARKDOWN
+        i18n.t(
+            lang,
+            "help",
+            **_format_hint(lang),
+            hint_monthly=i18n.t(lang, "input_hint_monthly"),
+            example_monthly=i18n.t(lang, "input_example_monthly"),
+        ),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
@@ -274,7 +360,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if action == "new":
-        prompt = _begin_new_reminder(context, chat_id)
+        text, keyboard = _show_type_picker(context, chat_id)
+        await query.answer()
+        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+        return
+
+    if action == "newtype":
+        rtype = parts[1] if len(parts) > 1 and parts[1] in ("monthly", "basic", "note") else "basic"
+        prompt = _begin_typed_reminder(context, chat_id, rtype)
         await query.answer()
         await context.bot.send_message(chat_id=chat_id, text=prompt, parse_mode=ParseMode.MARKDOWN)
         return
