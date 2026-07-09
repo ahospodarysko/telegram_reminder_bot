@@ -153,6 +153,10 @@ query, and input parsing — no token or network required.
 - SQLite via stdlib `sqlite3`; `datetime` + `zoneinfo` for timezones
 - Long-polling (`getUpdates`) — works behind NAT, no public endpoint
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ## Out of scope for v1
 
 Natural-language dates, recurring reminders, customizable offsets, and shared lists are
