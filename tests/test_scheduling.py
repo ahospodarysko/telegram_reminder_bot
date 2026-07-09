@@ -7,13 +7,16 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from bot import db, i18n
-from bot.scheduler import roll_recurring
+from bot.scheduler import roll_note, roll_recurring
 from bot.scheduling import (
     EXPIRED_RETENTION,
+    MONTHLY_OFFSETS,
+    NOTE_INTERVAL,
     ParseError,
     compute_occurrences,
     local_to_utc,
     next_monthly_due,
+    next_note_ping,
     parse_reminder_input,
     plan_occurrences,
     shift_out_of_quiet_hours,
@@ -174,49 +177,55 @@ class RecurringParsingTests(unittest.TestCase):
     NOW = datetime(2026, 6, 1, 12, 0)
 
     def test_monthly_keyword(self):
-        p = parse_reminder_input("Pay rent @ monthly 5 09:00", self.NOW)
+        p = parse_reminder_input("Pay rent @ monthly 5", self.NOW)
         self.assertEqual(p.note, "Pay rent")
         self.assertEqual(p.recurrence, "monthly")
         self.assertEqual(p.anchor_day, 5)
         self.assertEqual(p.when, datetime(2026, 6, 5, 9, 0))
 
     def test_every_month_synonym(self):
-        p = parse_reminder_input("Pay rent @ every month 5 09:00", self.NOW)
+        p = parse_reminder_input("Pay rent @ every month 5", self.NOW)
         self.assertEqual((p.recurrence, p.anchor_day), ("monthly", 5))
         self.assertEqual(p.when, datetime(2026, 6, 5, 9, 0))
 
     def test_ukrainian_synonyms(self):
-        for text in ("Оренда @ щомісяця 5 09:00", "Оренда @ кожного місяця 5 09:00"):
+        for text in ("Оренда @ щомісяця 5", "Оренда @ кожного місяця 5"):
             p = parse_reminder_input(text, self.NOW)
             self.assertEqual((p.recurrence, p.anchor_day), ("monthly", 5), text)
             self.assertEqual(p.when, datetime(2026, 6, 5, 9, 0), text)
 
     def test_first_due_rolls_to_next_month_when_passed(self):
         # Day 1 at 09:00 has already passed on 1 Jun 12:00 -> first due is 1 Jul.
-        p = parse_reminder_input("x @ monthly 1 09:00", self.NOW)
+        p = parse_reminder_input("x @ monthly 1", self.NOW)
         self.assertEqual(p.when, datetime(2026, 7, 1, 9, 0))
         self.assertEqual(p.anchor_day, 1)
 
     def test_first_due_clamps_short_month(self):
         # Day 31 in June (30 days) clamps to 30 Jun, but the anchor stays 31.
-        p = parse_reminder_input("x @ monthly 31 09:00", self.NOW)
+        p = parse_reminder_input("x @ monthly 31", self.NOW)
         self.assertEqual(p.when, datetime(2026, 6, 30, 9, 0))
         self.assertEqual(p.anchor_day, 31)
 
     def test_bad_recurrence_raises(self):
-        for bad in ("x @ monthly 09:00", "x @ monthly 45 09:00", "x @ monthly 5"):
+        for bad in ("x @ monthly", "x @ monthly 45", "x @ monthly 09:00"):
             with self.assertRaises(ParseError, msg=bad):
                 parse_reminder_input(bad, self.NOW)
 
     def test_force_monthly_without_keyword(self):
-        # Type picker chose monthly: no keyword needed, just day + time.
-        p = parse_reminder_input("Pay rent @ 5 09:00", self.NOW, force_recurrence="monthly")
+        # Type picker chose monthly: no keyword needed, just the day.
+        p = parse_reminder_input("Pay rent @ 5", self.NOW, force_recurrence="monthly")
         self.assertEqual((p.recurrence, p.anchor_day), ("monthly", 5))
         self.assertEqual(p.when, datetime(2026, 6, 5, 9, 0))
 
     def test_force_monthly_strips_typed_keyword(self):
-        p = parse_reminder_input("Pay rent @ monthly 5 09:00", self.NOW, force_recurrence="monthly")
+        p = parse_reminder_input("Pay rent @ monthly 5", self.NOW, force_recurrence="monthly")
         self.assertEqual((p.recurrence, p.anchor_day), ("monthly", 5))
+
+    def test_typed_time_is_tolerated_and_ignored(self):
+        # The old "Day HH:MM" shape still parses; the time is fixed at 09:00.
+        p = parse_reminder_input("Pay rent @ 5 18:30", self.NOW, force_recurrence="monthly")
+        self.assertEqual((p.recurrence, p.anchor_day), ("monthly", 5))
+        self.assertEqual(p.when, datetime(2026, 6, 5, 9, 0))
 
     def test_force_none_parses_one_shot(self):
         p = parse_reminder_input("Doctor @ June 21 16:00", self.NOW, force_recurrence="none")
@@ -263,6 +272,27 @@ class NextMonthlyDueTests(unittest.TestCase):
         self.assertEqual(utc_to_local(result, tz).hour, 9)
 
 
+class MonthlyPlanTests(unittest.TestCase):
+    def test_monthly_pings_48h_24h_and_day_of(self):
+        due = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
+        now = datetime(2026, 7, 10, 12, 0, tzinfo=UTC)
+        self.assertEqual(
+            plan_occurrences(due, now, "UTC", MONTHLY_OFFSETS),
+            [
+                ("-48h", datetime(2026, 7, 18, 9, 0, tzinfo=UTC)),
+                ("-24h", datetime(2026, 7, 19, 9, 0, tzinfo=UTC)),
+                ("0", datetime(2026, 7, 20, 9, 0, tzinfo=UTC)),
+            ],
+        )
+
+    def test_created_close_to_the_day_keeps_only_future_pings(self):
+        # Created on the 19th at noon for day 20: -48h and -24h are past, day-of stays.
+        due = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
+        now = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
+        self.assertEqual(plan_occurrences(due, now, "UTC", MONTHLY_OFFSETS),
+                         [("0", due)])
+
+
 class RollForwardTests(unittest.TestCase):
     def setUp(self):
         self.conn = db.connect(":memory:")
@@ -303,6 +333,46 @@ class RollForwardTests(unittest.TestCase):
         self.assertEqual(db.from_db(r["due_at_utc"]), next_due)
         self.assertEqual(r["status"], "active")
         self.assertTrue(db.get_pending_occurrences(self.conn, rid))
+
+
+class NotePingTests(unittest.TestCase):
+    TZ = "UTC"  # local time == UTC in these tests
+
+    def test_next_is_one_interval_later(self):
+        prev = datetime(2026, 7, 9, 12, 0, tzinfo=UTC)
+        self.assertEqual(next_note_ping(prev, self.TZ, prev), prev + NOTE_INTERVAL)
+
+    def test_quiet_hours_push_to_morning(self):
+        # 21:00 + 2h = 23:00 -> quiet hours -> 08:00 next day.
+        prev = datetime(2026, 7, 9, 21, 0, tzinfo=UTC)
+        self.assertEqual(next_note_ping(prev, self.TZ, prev),
+                         datetime(2026, 7, 10, 8, 0, tzinfo=UTC))
+
+    def test_catches_up_after_outage(self):
+        # Host was off for two days: exactly one future nudge, no stacked backlog.
+        prev = datetime(2026, 7, 9, 12, 0, tzinfo=UTC)
+        now = datetime(2026, 7, 11, 13, 0, tzinfo=UTC)
+        result = next_note_ping(prev, self.TZ, now)
+        self.assertGreater(result, now)
+        self.assertLessEqual(result, now + NOTE_INTERVAL)
+
+    def test_roll_note_advances_reminder(self):
+        conn = db.connect(":memory:")
+        db.init_db(conn)
+        now = datetime(2026, 7, 9, 12, 0, tzinfo=UTC)
+        db.upsert_user(conn, 1, self.TZ, now)
+        first = now - timedelta(minutes=1)
+        rid = db.add_reminder(conn, 1, "Buy milk", first, [("note", first)], now,
+                              recurrence="note")
+        rec = db.get_due_recurring(conn, now)[0]
+        self.assertEqual(rec["recurrence"], "note")
+        next_fire = roll_note(conn, rec["reminder_id"], rec["due_at_utc"],
+                              rec["timezone"], now)
+        self.assertGreater(next_fire, now)
+        self.assertEqual(db.from_db(db.get_reminder(conn, rid)["due_at_utc"]), next_fire)
+        pending = db.get_pending_occurrences(conn, rid)
+        self.assertEqual([db.from_db(o["fire_at_utc"]) for o in pending][-1], next_fire)
+        conn.close()
 
 
 class PurgeExpiredTests(unittest.TestCase):

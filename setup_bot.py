@@ -21,7 +21,7 @@ from bot.config import get_token
 # shows the set matching the user's client language, falling back to the default (en).
 COMMANDS: list[BotCommand] = [
     BotCommand("start", "Register and show the menu"),
-    BotCommand("remind", "Create a reminder (one-time or monthly)"),
+    BotCommand("remind", "Create a reminder (one-time, monthly, or note)"),
     BotCommand("list", "List active reminders"),
     BotCommand("timezone", "View or set your timezone"),
     BotCommand("language", "Change language"),
@@ -30,7 +30,7 @@ COMMANDS: list[BotCommand] = [
 
 COMMANDS_UK: list[BotCommand] = [
     BotCommand("start", "Реєстрація та головне меню"),
-    BotCommand("remind", "Створити нагадування (разове або щомісячне)"),
+    BotCommand("remind", "Створити нагадування (разове, щомісячне або нотатка)"),
     BotCommand("list", "Список активних нагадувань"),
     BotCommand("timezone", "Переглянути чи задати часовий пояс"),
     BotCommand("language", "Змінити мову"),
@@ -38,12 +38,14 @@ COMMANDS_UK: list[BotCommand] = [
 ]
 
 BOT_NAME = "Reminder Bot"
-SHORT_DESCRIPTION = "Saves your notes and reminds you before the deadline — one-time or monthly."
+SHORT_DESCRIPTION = (
+    "One-time and monthly reminders, plus quick notes that nudge you every 2 hours."
+)
 # Keep this in sync with i18n "bot_description" (the app sets the live, per-language
 # description on startup; this is the fallback applied by the one-time setup script).
 DESCRIPTION = (
-    "I send reminders, including monthly ones. Save a note with a date, and I'll ping "
-    "you in time. Tap START to begin."
+    "I help you not to forget things. One-time and monthly reminders, plus quick notes "
+    "that nudge you every 2 hours until you close them. Tap START to begin."
 )
 
 

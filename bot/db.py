@@ -145,8 +145,9 @@ def add_reminder(
 ) -> int:
     """Insert a reminder and its occurrence rows in a single transaction.
 
-    ``recurrence`` is ``'none'`` (one-shot) or ``'monthly'``; ``anchor_day`` is the 1–31
-    day-of-month to repeat on (``None`` for one-shot).
+    ``recurrence`` is ``'none'`` (one-shot), ``'monthly'``, or ``'note'`` (periodic
+    nudges, no real deadline); ``anchor_day`` is the 1–31 day-of-month a monthly
+    reminder repeats on (``None`` otherwise).
 
     Returns:
         The new reminder's id.
@@ -245,6 +246,7 @@ def get_due_recurring(conn: sqlite3.Connection, now_utc: datetime) -> list[sqlit
             r.id         AS reminder_id,
             r.due_at_utc AS due_at_utc,
             r.anchor_day AS anchor_day,
+            r.recurrence AS recurrence,
             u.timezone   AS timezone
         FROM reminders r
         JOIN users u ON u.chat_id = r.chat_id

@@ -15,7 +15,14 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from . import db, i18n
-from .scheduling import EXPIRED_RETENTION, next_monthly_due, plan_occurrences, utcnow
+from .scheduling import (
+    EXPIRED_RETENTION,
+    MONTHLY_OFFSETS,
+    next_monthly_due,
+    next_note_ping,
+    plan_occurrences,
+    utcnow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +37,28 @@ def roll_recurring(
     """
     prev_due = db.from_db(due_at_utc_str)
     next_due = next_monthly_due(prev_due, anchor_day, tz_name, now_utc)
-    occurrences = plan_occurrences(next_due, now_utc, tz_name)
+    occurrences = plan_occurrences(next_due, now_utc, tz_name, MONTHLY_OFFSETS)
     db.advance_recurring(conn, reminder_id, next_due, occurrences)
     return next_due
+
+
+def roll_note(conn, reminder_id: int, due_at_utc_str: str, tz_name: str, now_utc):
+    """Advance a note reminder to its next periodic nudge; return the new time.
+
+    A note's ``due_at_utc`` is simply its next nudge, with a single occurrence at that
+    same time.
+    """
+    next_fire = next_note_ping(db.from_db(due_at_utc_str), tz_name, now_utc)
+    db.advance_recurring(conn, reminder_id, next_fire, [("note", next_fire)])
+    return next_fire
 
 
 def _format_ping(row) -> str:
     """Build the localized message text for one due occurrence."""
     lang = i18n.normalize_lang(row["language"])
+    # Notes have no deadline — every nudge is a plain "don't forget".
+    if row["recurrence"] == "note":
+        return i18n.t(lang, "ping_note", text=row["text"])
     # The at-deadline fallback ping (label "0") reads "due now"; advance pings "coming up".
     if row["offset"] == "0":
         return i18n.t(lang, "ping_due_now", text=row["text"])
@@ -57,12 +78,11 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     due = db.get_due_occurrences(conn, now)
     for row in due:
         lang = i18n.normalize_lang(row["language"])
-        recurring = row["recurrence"] != "none"
         try:
             await context.bot.send_message(
                 chat_id=row["chat_id"],
                 text=_format_ping(row),
-                reply_markup=reminder_actions(row["reminder_id"], lang, recurring=recurring),
+                reply_markup=reminder_actions(row["reminder_id"], lang, row["recurrence"]),
             )
         except Forbidden:
             # User blocked or deleted the chat — give up on this ping so it stops retrying.
@@ -78,8 +98,11 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     # its next cycle. Kept in the same tick so the whole mechanism is restart-safe.
     for rec in db.get_due_recurring(conn, now):
         try:
-            roll_recurring(conn, rec["reminder_id"], rec["due_at_utc"],
-                           rec["anchor_day"], rec["timezone"], now)
+            if rec["recurrence"] == "note":
+                roll_note(conn, rec["reminder_id"], rec["due_at_utc"], rec["timezone"], now)
+            else:
+                roll_recurring(conn, rec["reminder_id"], rec["due_at_utc"],
+                               rec["anchor_day"], rec["timezone"], now)
         except Exception:  # noqa: BLE001 - one bad reminder shouldn't stop the rest.
             logger.exception("Failed to roll recurring reminder %s", rec["reminder_id"])
 

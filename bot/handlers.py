@@ -26,11 +26,14 @@ from . import db, i18n, keyboards
 from .config import default_timezone
 from .scheduling import (
     EXPIRED_RETENTION,
+    MONTHLY_OFFSETS,
+    NOTE_INTERVAL,
     ParseError,
     is_valid_timezone,
     local_to_utc,
     parse_reminder_input,
     plan_occurrences,
+    shift_out_of_quiet_hours,
     utc_to_local,
     utcnow,
 )
@@ -71,7 +74,7 @@ def _confirmation(
     due = i18n.format_when(due_at_utc, tz, lang)
     pings = "; ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
     if recurrence != "none":
-        rule = _recurrence_rule(lang, tz, due_at_utc, anchor_day)
+        rule = _recurrence_rule(lang, anchor_day)
         if occurrences:
             return i18n.t(lang, "confirm_recurring", note=note, rule=rule, due=due, tz=tz, pings=pings)
         return i18n.t(lang, "confirm_recurring_none", note=note, rule=rule, due=due, tz=tz)
@@ -80,10 +83,11 @@ def _confirmation(
     return i18n.t(lang, "confirm_none", note=note, due=due, tz=tz)
 
 
-def _recurrence_rule(lang: str, tz: str, due_at_utc, anchor_day: int | None) -> str:
-    """The localized 'monthly on day N at HH:MM' rule line for a recurring reminder."""
-    time_str = utc_to_local(due_at_utc, tz).strftime("%H:%M")
-    return i18n.t(lang, "recur_monthly_desc", day=anchor_day, time=time_str)
+def _recurrence_rule(lang: str, anchor_day: int | None, recurrence: str = "monthly") -> str:
+    """The localized repeat-rule line for a recurring reminder."""
+    if recurrence == "note":
+        return i18n.t(lang, "recur_note_desc")
+    return i18n.t(lang, "recur_monthly_desc", day=anchor_day)
 
 
 def _format_hint(lang: str, rtype: str = "basic") -> dict[str, str]:
@@ -149,7 +153,7 @@ def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtyp
     context.user_data["reminder_type"] = rtype
     context.user_data.pop("awaiting_timezone", None)
     lang = _user_lang(context, chat_id)
-    key = "new_prompt_monthly" if rtype == "monthly" else "new_prompt"
+    key = {"monthly": "new_prompt_monthly", "note": "new_prompt_note"}.get(rtype, "new_prompt")
     return i18n.t(lang, key, **_format_hint(lang, rtype))
 
 
@@ -168,6 +172,26 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     now = utcnow()
     now_local = utc_to_local(now, tz_name).replace(tzinfo=None)
     rtype = context.user_data.get("reminder_type", "basic")
+
+    if rtype == "note":
+        # A note is just text — no date to parse. Its "deadline" is simply the next
+        # nudge, which the scheduler keeps rolling forward every NOTE_INTERVAL.
+        note = text.strip()
+        if not note:
+            await update.message.reply_text(i18n.t(lang, "err_empty_note_text"))
+            return
+        first = shift_out_of_quiet_hours(now + NOTE_INTERVAL, tz_name)
+        db.add_reminder(conn, chat_id, note, first, [("note", first)], now,
+                        recurrence="note")
+        context.user_data.pop("awaiting_reminder", None)
+        context.user_data.pop("reminder_type", None)
+        await update.message.reply_text(
+            i18n.t(lang, "confirm_note", note=note,
+                   first=i18n.format_when(first, tz_name, lang)),
+            reply_markup=keyboards.new_reminder_button(lang),
+        )
+        return
+
     force = "monthly" if rtype == "monthly" else "none"
     try:
         parsed = parse_reminder_input(text, now_local, force_recurrence=force)
@@ -179,7 +203,10 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         )
         return
 
-    occurrences = plan_occurrences(due_at_utc, now, tz_name)
+    if parsed.recurrence != "none":
+        occurrences = plan_occurrences(due_at_utc, now, tz_name, MONTHLY_OFFSETS)
+    else:
+        occurrences = plan_occurrences(due_at_utc, now, tz_name)
     db.add_reminder(conn, chat_id, parsed.note, due_at_utc, occurrences, now,
                     recurrence=parsed.recurrence, anchor_day=parsed.anchor_day)
     context.user_data.pop("awaiting_reminder", None)
@@ -222,7 +249,7 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pings = " " + i18n.t(lang, "list_no_pending")
         recurring = r["recurrence"] != "none"
         if recurring and due:
-            rule = _recurrence_rule(lang, tz_name, due, r["anchor_day"])
+            rule = _recurrence_rule(lang, r["anchor_day"], r["recurrence"])
             body = i18n.t(lang, "list_item_recurring", text=r["text"], when=when, rule=rule, pings=pings)
         else:
             body = i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings)
@@ -339,7 +366,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if action == "newtype":
-        rtype = parts[1] if len(parts) > 1 and parts[1] in ("monthly", "basic") else "basic"
+        rtype = parts[1] if len(parts) > 1 and parts[1] in ("monthly", "basic", "note") else "basic"
         prompt = _begin_typed_reminder(context, chat_id, rtype)
         await query.answer()
         await context.bot.send_message(chat_id=chat_id, text=prompt, parse_mode=ParseMode.MARKDOWN)

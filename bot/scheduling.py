@@ -20,10 +20,23 @@ OFFSETS: list[tuple[str, timedelta]] = [
     ("-2h", timedelta(hours=2)),
 ]
 
+# Monthly reminders ping 48h and 24h ahead plus on the day itself. Their deadline time
+# is not typed by the user — it is fixed at MONTHLY_HOUR:00 local (the day-of ping).
+MONTHLY_OFFSETS: list[tuple[str, timedelta]] = [
+    ("-48h", timedelta(hours=48)),
+    ("-24h", timedelta(hours=24)),
+    ("0", timedelta(0)),
+]
+MONTHLY_HOUR = 9  # 09:00 local
+
 # How long a passed one-shot reminder stays visible in /list after its deadline before
 # it is deleted automatically. Recurring reminders are never auto-deleted — they roll
 # forward until the user stops them.
 EXPIRED_RETENTION = timedelta(days=5)
+
+# Note reminders ("don't forget" notes with no deadline) nudge on this fixed cadence
+# until the user marks them done.
+NOTE_INTERVAL = timedelta(hours=2)
 
 # Input format for v1 reminder creation: "note text @ Month Day HH:MM" (24-hour time).
 # The year is omitted — it defaults to the current year, rolling to next year if that
@@ -175,15 +188,32 @@ def shift_out_of_quiet_hours(fire_at_utc: datetime, tz_name: str) -> datetime:
     return target.astimezone(timezone.utc)
 
 
+def next_note_ping(prev_fire_utc: datetime, tz_name: str, now_utc: datetime) -> datetime:
+    """The next note nudge after ``prev_fire_utc``: one :data:`NOTE_INTERVAL` on, in the
+    future, outside quiet hours.
+
+    Steps forward in whole intervals past ``now_utc``, so an outage yields one next
+    nudge rather than a stack of missed ones.
+    """
+    candidate = prev_fire_utc + NOTE_INTERVAL
+    while candidate <= now_utc:
+        candidate += NOTE_INTERVAL
+    return shift_out_of_quiet_hours(candidate, tz_name)
+
+
 def plan_occurrences(
-    due_at_utc: datetime, now_utc: datetime, tz_name: str
+    due_at_utc: datetime,
+    now_utc: datetime,
+    tz_name: str,
+    offsets: list[tuple[str, timedelta]] = OFFSETS,
 ) -> list[tuple[str, datetime]]:
     """Compute future pings, honoring quiet hours and de-duplicating collisions.
 
     Like :func:`compute_occurrences`, but each fire time is first shifted out of the
     user's quiet hours (see :func:`shift_out_of_quiet_hours`). Two offsets that land in
     the same night collapse to a single 08:00 ping; past pings are dropped. Results are
-    sorted by fire time.
+    sorted by fire time. ``offsets`` defaults to the one-shot :data:`OFFSETS`; monthly
+    reminders pass :data:`MONTHLY_OFFSETS`.
 
     Fallback: if a reminder is created so close to the deadline that every offset ping is
     already in the past, a single at-deadline ping (label ``"0"``) is scheduled instead
@@ -195,7 +225,7 @@ def plan_occurrences(
     """
     seen: set[datetime] = set()
     planned: list[tuple[str, datetime]] = []
-    for label, delta in OFFSETS:
+    for label, delta in offsets:
         fire_at = shift_out_of_quiet_hours(due_at_utc - delta, tz_name)
         if fire_at <= now_utc or fire_at in seen:
             continue
@@ -236,13 +266,14 @@ def parse_reminder_input(
 
     - One-shot: ``"note @ Month Day HH:MM"``. The year is not typed — it defaults to
       ``now_local``'s year and rolls to next year if that date/time has already passed.
-    - Recurring monthly: ``"note @ monthly Day HH:MM"`` (or ``every month`` / Ukrainian
-      ``щомісяця`` / ``кожного місяця``). The **month name is omitted**; only day-of-month
-      and time are given. The first deadline is that day/time this month if still ahead,
-      otherwise next month (day clamped to the month's length).
+    - Recurring monthly: ``"note @ monthly Day"`` (or ``every month`` / Ukrainian
+      ``щомісяця`` / ``кожного місяця``). **Only the day-of-month is given** — the
+      deadline time is fixed at :data:`MONTHLY_HOUR`:00 (a typed time is ignored). The
+      first deadline is that day this month if still ahead, otherwise next month (day
+      clamped to the month's length).
 
     ``force_recurrence`` pins the type instead of auto-detecting it from a keyword: the
-    type-picker flow passes ``'monthly'`` (parse day + time, keyword optional) or
+    type-picker flow passes ``'monthly'`` (parse the day, keyword optional) or
     ``'none'`` (parse as one-shot). Left ``None`` (e.g. ``/remind``), the keyword decides.
 
     Args:
@@ -271,8 +302,8 @@ def parse_reminder_input(
         recurrence, remainder = _match_recurrence(when)
 
     if recurrence != "none":
-        day, hour, minute = _parse_day_time(remainder)
-        first_due = _build_first_monthly(now_local, day, hour, minute)
+        day = _parse_day(remainder)
+        first_due = _build_first_monthly(now_local, day, MONTHLY_HOUR, 0)
         return ParsedReminder(note, first_due, recurrence, day)
 
     month, day, hour, minute = _parse_when_parts(when)
@@ -295,28 +326,23 @@ def _match_recurrence(when: str) -> tuple[str, str]:
     return "none", when
 
 
-def _parse_day_time(when: str) -> tuple[int, int, int]:
-    """Extract ``(day, hour, minute)`` from a recurring date side (no month name).
+def _parse_day(when: str) -> int:
+    """Extract the 1–31 day-of-month from a recurring date side (no month name).
+
+    A typed HH:MM is tolerated and ignored — monthly deadlines are always at
+    :data:`MONTHLY_HOUR`:00.
 
     Raises:
-        ParseError("bad_recurrence"): if the time or a 1–31 day is missing/invalid.
+        ParseError("bad_recurrence"): if a 1–31 day is missing/invalid.
     """
-    time_match = _TIME_RE.search(when)
-    if not time_match:
-        raise ParseError("bad_recurrence")
-    hour, minute = int(time_match.group(1)), int(time_match.group(2))
-    if hour > 23 or minute > 59:
-        raise ParseError("bad_recurrence")
-
-    rest = (when[: time_match.start()] + " " + when[time_match.end() :]).split()
     day = None
-    for token in rest:
-        token = token.strip(".,").lower()
+    for token in _TIME_RE.sub(" ", when).split():
+        token = token.strip(".,")
         if token.isdigit() and day is None:
             day = int(token)
     if day is None or not 1 <= day <= 31:
         raise ParseError("bad_recurrence")
-    return day, hour, minute
+    return day
 
 
 def _clamped_date(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
