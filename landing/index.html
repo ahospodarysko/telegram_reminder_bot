@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reminder Bot — reminders that ping you until you close them</title>
+  <meta name="description" content="Send @lviv_reminder_bot a note and get pinged before it matters — one-time, monthly, or a running note. Free and open source.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔔</text></svg>">
+</head>
+<body>
+
+  <header class="hero">
+    <nav class="nav">
+      <span class="logo">🔔 Reminder Bot</span>
+      <a class="nav-link" href="https://github.com/ahospodarysko/telegram_reminder_bot">GitHub</a>
+    </nav>
+
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <h1>Nothing gets<br>forgotten in Telegram</h1>
+        <p class="tagline">
+          Save a note once and get pinged until it's handled —
+          a single date, a monthly bill, or a running note. English or Ukrainian.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://t.me/lviv_reminder_bot">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M9.04 15.51 8.9 19.4c.4 0 .58-.17.8-.38l1.92-1.84 3.98 2.91c.73.4 1.25.19 1.45-.67l2.62-12.29c.23-1.07-.39-1.49-1.1-1.23L3.7 11.44c-1.05.41-1.04.99-.18 1.25l3.94 1.23 9.14-5.77c.43-.28.82-.13.5.15z"/></svg>
+            Open @lviv_reminder_bot
+          </a>
+          <a class="btn btn-ghost" href="#how">How it works</a>
+        </div>
+      </div>
+
+      <div class="hero-demo" aria-hidden="true">
+        <div class="chat">
+          <div class="msg msg-in">
+            🆕 Choose reminder type:
+            <div class="chips">
+              <span class="chip">Basic</span>
+              <span class="chip chip-active">Monthly</span>
+              <span class="chip">Note</span>
+            </div>
+          </div>
+          <div class="msg msg-out">Pay rent @ 5</div>
+          <div class="msg msg-in msg-result">
+            <span class="ping-icon">🔁</span>
+            <span>repeats monthly · next ping 09:00, 5 Aug</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="features">
+      <h2>What it does</h2>
+      <div class="grid">
+        <article class="card">
+          <div class="card-icon">🔔</div>
+          <h3>Basic reminders</h3>
+          <p>One date, two pings — 24h and 2h before the deadline. Too close to fit both? You still get one ping, right at the deadline.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon">🔁</div>
+          <h3>Monthly reminders</h3>
+          <p>Give it a day of the month and it repeats — 48h and 24h ahead, then 09:00 on the day itself, until you tap Stop repeating.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon">📝</div>
+          <h3>Quick notes</h3>
+          <p>No date needed — just text. A grocery list or anything you don't want to forget, nudged every 2 hours until you close it.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon">🌙</div>
+          <h3>Quiet hours</h3>
+          <p>No pings between 22:00 and 08:00 your time. Anything due overnight waits and arrives first thing in the morning instead.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="how" id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li><span class="step-num">1</span><div><h3>Pick a type</h3><p>Tap ➕ New reminder in <a href="https://t.me/lviv_reminder_bot">@lviv_reminder_bot</a> and choose Basic, Monthly, or Note.</p></div></li>
+        <li><span class="step-num">2</span><div><h3>Send one line</h3><p><code>note @ Month Day HH:MM</code> for a date, <code>note @ Day</code> for monthly, or just plain text for a note.</p></div></li>
+        <li><span class="step-num">3</span><div><h3>Get pinged on schedule</h3><p>The bot handles the offsets and quiet hours. Tap Close (or Stop repeating) whenever you're done.</p></div></li>
+      </ol>
+      <p class="note">Heads-up: works in <strong>English and Ukrainian</strong> — switch anytime with <code>/language</code>. Your timezone is set with <code>/timezone</code>.</p>
+    </section>
+
+    <section class="open-source">
+      <h2>Free &amp; open source</h2>
+      <p>
+        Reminder Bot is a small Python bot built on
+        <a href="https://python-telegram-bot.org">python-telegram-bot</a> and SQLite.
+        Read the code, run your own instance, or open an issue.
+      </p>
+      <a class="btn btn-ghost" href="https://github.com/ahospodarysko/telegram_reminder_bot">View on GitHub</a>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2026 Andrii Hospodarysko · <a href="https://github.com/ahospodarysko/telegram_reminder_bot/blob/main/LICENSE">MIT License</a> · <a href="https://t.me/lviv_reminder_bot">@lviv_reminder_bot</a></p>
+    <p class="fineprint">Reminders are only as good as your timezone — the bot pings on your local clock, not the server's.</p>
+  </footer>
+
+</body>
+</html>
