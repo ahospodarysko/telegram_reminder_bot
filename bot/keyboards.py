@@ -27,12 +27,39 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def reminder_actions(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
-    """Inline Done / Cancel buttons attached under a reminder."""
+def reminder_actions(reminder_id: int, lang: str, recurring: bool = False) -> InlineKeyboardMarkup:
+    """Inline action buttons under a reminder.
+
+    One-shot: Done / Cancel. Recurring: a single "Stop repeating" button — the series
+    rolls forward automatically each cycle until the user stops it, so there is no
+    per-cycle Done.
+    """
+    if recurring:
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(i18n.t(lang, "btn_stop_repeating"),
+                                   callback_data=f"cancel:{reminder_id}")]]
+        )
     return InlineKeyboardMarkup(
         [[
             InlineKeyboardButton(i18n.t(lang, "btn_done"), callback_data=f"done:{reminder_id}"),
             InlineKeyboardButton(i18n.t(lang, "btn_cancel"), callback_data=f"cancel:{reminder_id}"),
+        ]]
+    )
+
+
+def reminder_cancel_action(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
+    """A single Cancel button — used in /list for both one-shot and recurring reminders."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(i18n.t(lang, "btn_cancel"), callback_data=f"cancel:{reminder_id}")]]
+    )
+
+
+def reminder_type_picker(lang: str) -> InlineKeyboardMarkup:
+    """Inline buttons to choose a reminder type (callback ``newtype:monthly|basic``)."""
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton(i18n.t(lang, "btn_type_monthly"), callback_data="newtype:monthly"),
+            InlineKeyboardButton(i18n.t(lang, "btn_type_basic"), callback_data="newtype:basic"),
         ]]
     )
 
