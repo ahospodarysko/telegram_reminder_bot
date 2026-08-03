@@ -108,8 +108,15 @@ TEXT: dict[str, dict[str, str]] = {
             "• /list — active reminders with their upcoming pings (✖ Close removes one)\n"
             "• /timezone `[IANA]` — view or set your timezone, e.g. `/timezone Europe/Kyiv`\n"
             "• /language — switch English / Українська\n"
+            "• /support — send a message to support\n"
             "• /help — this message"
         ),
+        # support
+        "support_prompt": "✉️ Type your message and I'll pass it along to support.",
+        "err_empty_support_text": "That message is empty — type what you'd like to say.",
+        "support_sent": "✅ Sent — thanks, we'll get back to you soon.",
+        "support_error": "⚠️ Couldn't send your message right now. Please try again later.",
+        "support_reply": "💬 Support:\n\n{message}",
         # new reminder
         "choose_reminder_type": "🆕 Choose reminder type:",
         "new_prompt": (
@@ -263,8 +270,15 @@ TEXT: dict[str, dict[str, str]] = {
             "• /list — активні нагадування з часом пінгів (✖ Закрити — видалити)\n"
             "• /timezone `[IANA]` — переглянути чи змінити часовий пояс, напр. `/timezone Europe/Kyiv`\n"
             "• /language — змінити мову (English / Українська)\n"
+            "• /support — написати в підтримку\n"
             "• /help — це повідомлення"
         ),
+        # support
+        "support_prompt": "✉️ Напишіть повідомлення — я передам його в підтримку.",
+        "err_empty_support_text": "Повідомлення порожнє — напишіть, що ви хочете сказати.",
+        "support_sent": "✅ Надіслано — дякуємо, ми скоро відповімо.",
+        "support_error": "⚠️ Не вдалося надіслати повідомлення. Спробуйте пізніше.",
+        "support_reply": "💬 Підтримка:\n\n{message}",
         "choose_reminder_type": "🆕 Оберіть тип нагадування:",
         "new_prompt": (
             "📝 Надішліть нагадування у такому форматі:\n`{hint}`\n\n_Приклад:_ `{example}`"

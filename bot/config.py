@@ -60,6 +60,27 @@ def get_database_url() -> str:
     return url
 
 
+def get_admin_chat_id() -> int:
+    """Return the developer's chat_id, used to forward ``/support`` messages.
+
+    Unlike the token/DB settings, this is the same for production and test — the
+    developer is one person regardless of which bot a user is messaging.
+
+    Raises:
+        RuntimeError: if ``ADMIN_CHAT_ID`` is missing or not a valid chat_id.
+    """
+    value = os.environ.get("ADMIN_CHAT_ID", "").strip()
+    if not value:
+        raise RuntimeError(
+            "ADMIN_CHAT_ID is not set. Put your Telegram chat_id in the ADMIN_CHAT_ID "
+            "environment variable (see .env.example)."
+        )
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError("ADMIN_CHAT_ID must be a numeric Telegram chat_id.") from None
+
+
 def default_timezone() -> str:
     """Resolve the IANA timezone assigned to a new user on first ``/start``.
 

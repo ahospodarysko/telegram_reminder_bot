@@ -21,12 +21,17 @@ logger = logging.getLogger(__name__)
 async def _set_bot_description(application: Application) -> None:
     """Register the per-language "What can this bot do?" description on startup.
 
-    The default (no ``language_code``) covers English and every other locale; Telegram
-    serves the Ukrainian text automatically to users whose app language is Ukrainian.
+    Telegram shows the description matching each viewer's own Telegram app language,
+    chosen before they've told the bot anything — so the default (no ``language_code``,
+    covering English and every locale other than Ukrainian) shows both languages; a
+    viewer whose app language is Ukrainian gets the ``language_code="uk"`` variant,
+    Ukrainian only.
     """
     bot = application.bot
-    await bot.set_my_description(i18n.t(i18n.DEFAULT_LANG, "bot_description"))
-    await bot.set_my_description(i18n.t("uk", "bot_description"), language_code="uk")
+    en_text = i18n.t(i18n.DEFAULT_LANG, "bot_description")
+    uk_text = i18n.t("uk", "bot_description")
+    await bot.set_my_description(f"{en_text}\n\n{uk_text}")
+    await bot.set_my_description(uk_text, language_code="uk")
 
 
 def build_application() -> Application:
