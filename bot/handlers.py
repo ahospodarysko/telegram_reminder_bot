@@ -23,7 +23,7 @@ from telegram.ext import (
 )
 
 from . import db, i18n, keyboards
-from .config import default_timezone
+from .config import default_timezone, get_admin_chat_id
 from .scheduling import (
     EXPIRED_RETENTION,
     MONTHLY_OFFSETS,
@@ -143,6 +143,7 @@ def _show_type_picker(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> tuple
     context.user_data.pop("awaiting_timezone", None)
     context.user_data.pop("awaiting_reminder", None)
     context.user_data.pop("reminder_type", None)
+    context.user_data.pop("awaiting_support", None)
     lang = _user_lang(context, chat_id)
     return i18n.t(lang, "choose_reminder_type"), keyboards.reminder_type_picker(lang)
 
@@ -152,6 +153,7 @@ def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtyp
     context.user_data["awaiting_reminder"] = True
     context.user_data["reminder_type"] = rtype
     context.user_data.pop("awaiting_timezone", None)
+    context.user_data.pop("awaiting_support", None)
     lang = _user_lang(context, chat_id)
     key = {"monthly": "new_prompt_monthly", "note": "new_prompt_note"}.get(rtype, "new_prompt")
     return i18n.t(lang, key, **_format_hint(lang, rtype))
@@ -285,6 +287,7 @@ async def _prompt_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data["awaiting_timezone"] = True
     context.user_data.pop("awaiting_reminder", None)
     context.user_data.pop("reminder_type", None)
+    context.user_data.pop("awaiting_support", None)
     await update.message.reply_text(
         i18n.t(lang, "tz_prompt", tz=_user_tz(context, chat_id)), parse_mode=ParseMode.MARKDOWN
     )
@@ -320,6 +323,80 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+# --- /support ------------------------------------------------------------------------
+
+async def support_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/support``: arm the flow so the user's next message is forwarded to the developer."""
+    chat_id = update.effective_chat.id
+    context.user_data["awaiting_support"] = True
+    context.user_data.pop("awaiting_timezone", None)
+    context.user_data.pop("awaiting_reminder", None)
+    context.user_data.pop("reminder_type", None)
+    lang = _user_lang(context, chat_id)
+    await update.message.reply_text(i18n.t(lang, "support_prompt"))
+
+
+async def _send_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """Forward the user's message to the developer's chat (``ADMIN_CHAT_ID``)."""
+    chat_id = update.effective_chat.id
+    lang = _user_lang(context, chat_id)
+    text = text.strip()
+    if not text:
+        await update.message.reply_text(i18n.t(lang, "err_empty_support_text"))
+        return
+    context.user_data.pop("awaiting_support", None)
+    user = update.effective_user
+    who = f"@{user.username}" if user and user.username else (user.full_name if user else "unknown")
+    try:
+        await context.bot.send_message(
+            chat_id=get_admin_chat_id(),
+            text=f"📩 Support message from {who} (chat_id {chat_id}):\n\n{text}",
+        )
+    except Exception:
+        logger.exception("Failed to forward support message from chat_id %s", chat_id)
+        await update.message.reply_text(i18n.t(lang, "support_error"))
+        return
+    await update.message.reply_text(i18n.t(lang, "support_sent"))
+
+
+async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin-only ``/reply <chat_id> <message>``: relay an answer back to a support sender.
+
+    Silently ignored for anyone other than ``ADMIN_CHAT_ID`` — the developer can find
+    a sender's chat_id in the forwarded support message.
+    """
+    try:
+        admin_chat_id = get_admin_chat_id()
+    except RuntimeError:
+        logger.warning("ADMIN_CHAT_ID not configured; ignoring /reply")
+        return
+    if update.effective_chat.id != admin_chat_id:
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /reply <chat_id> <message>")
+        return
+    try:
+        target_chat_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("chat_id must be a number.")
+        return
+    message = " ".join(context.args[1:])
+
+    target_lang = _user_lang(context, target_chat_id)
+    try:
+        await context.bot.send_message(
+            chat_id=target_chat_id, text=i18n.t(target_lang, "support_reply", message=message)
+        )
+    except Exception:
+        logger.exception("Failed to relay admin reply to chat_id %s", target_chat_id)
+        await update.message.reply_text(
+            f"Couldn't deliver to {target_chat_id} — invalid chat_id or the bot is blocked."
+        )
+        return
+    await update.message.reply_text(f"Sent to {target_chat_id}.")
+
+
 # --- free-text catch-all -------------------------------------------------------------
 
 async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -329,6 +406,8 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _set_timezone(update, context, text.strip())
     elif context.user_data.get("awaiting_reminder"):
         await _create_reminder(update, context, text)
+    elif context.user_data.get("awaiting_support"):
+        await _send_support_message(update, context, text)
     else:
         lang = _user_lang(context, update.effective_chat.id)
         await update.message.reply_text(
@@ -406,6 +485,8 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("timezone", timezone_command))
     application.add_handler(CommandHandler("language", language_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("support", support_start))
+    application.add_handler(CommandHandler("reply", reply_command))
 
     # Menu buttons send their (localized) label as text — match any language, before the
     # free-text catch-all.
