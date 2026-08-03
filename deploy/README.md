@@ -14,12 +14,12 @@ git clone git@github.com:ahospodarysko/telegram_reminder_bot.git
 cd telegram_reminder_bot
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # then edit: set BOT_TOKEN, optionally DEFAULT_TZ / DB_PATH
+cp .env.example .env          # then edit: set BOT_TOKEN and DATABASE_URL, optionally DEFAULT_TZ
 chmod +x run.sh
 ```
 
-A fresh `reminders.db` is created on first run; copy your existing one over if you
-want to keep prior test data.
+`DATABASE_URL` must point at a reachable PostgreSQL database that already exists —
+tables are created automatically on first run.
 
 ## 2. Keep the machine awake
 

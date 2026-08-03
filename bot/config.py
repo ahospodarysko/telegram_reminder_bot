@@ -39,17 +39,25 @@ def get_token() -> str:
     return token
 
 
-def get_db_path() -> str:
-    """Return the SQLite database path.
+def get_database_url() -> str:
+    """Return the PostgreSQL connection string for the active environment.
 
-    Honours ``DB_PATH`` if set. Otherwise defaults to ``reminders.db`` in production
-    and ``reminders.test.db`` in the test environment, so a dev run can never write to
-    or fire reminders from the production database.
+    Reads ``TEST_DATABASE_URL`` in the test environment (see :func:`is_test_env`) and
+    ``DATABASE_URL`` otherwise, mirroring how :func:`get_token` picks between
+    ``BOT_TOKEN``/``TEST_BOT_TOKEN`` — so a dev run can never write to or fire
+    reminders from the production database.
+
+    Raises:
+        RuntimeError: if the relevant variable is missing or empty.
     """
-    explicit = os.environ.get("DB_PATH", "").strip()
-    if explicit:
-        return explicit
-    return "reminders.test.db" if is_test_env() else "reminders.db"
+    var = "TEST_DATABASE_URL" if is_test_env() else "DATABASE_URL"
+    url = os.environ.get(var, "").strip()
+    if not url:
+        raise RuntimeError(
+            f"{var} is not set. Put your PostgreSQL connection string in the {var} "
+            "environment variable (see .env.example)."
+        )
+    return url
 
 
 def default_timezone() -> str:

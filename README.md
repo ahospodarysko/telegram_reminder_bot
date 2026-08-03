@@ -43,14 +43,14 @@ tap rather than type for almost everything.
 - **Restart-safe scheduling:** every ping is a row in an `occurrences` table with a
   `sent` flag. A loop runs each minute, fires any unsent ping whose time has passed,
   and marks it sent. A brief outage yields a *late* reminder, never a lost or duplicated
-  one — SQLite is the source of truth, reloaded on startup.
+  one — PostgreSQL is the source of truth, reloaded on startup.
 
 ## Project layout
 
 ```
 bot/
   config.py      # BOT_TOKEN + default timezone resolution
-  db.py          # SQLite schema + CRUD (source of truth)
+  db.py          # PostgreSQL schema + CRUD (source of truth)
   scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing, monthly recurrence
   i18n.py        # English + Ukrainian strings, localized dates, button label sets
   keyboards.py   # reply + inline keyboards (language-aware)
@@ -76,8 +76,10 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and set `BOT_TOKEN` to your BotFather token. Optionally set `DEFAULT_TZ`
-(IANA timezone for new users) and `DB_PATH`.
+Edit `.env` and set `BOT_TOKEN` to your BotFather token, and `DATABASE_URL` to a
+PostgreSQL connection string (e.g. `postgresql://user:password@host:5432/reminders`) —
+the database itself must already exist; tables are created automatically on first run.
+Optionally set `DEFAULT_TZ` (IANA timezone for new users).
 
 The token is read **only** from the environment. Load `.env` into your shell however you
 prefer, e.g.:
@@ -86,9 +88,9 @@ prefer, e.g.:
 set -a; source .env; set +a
 ```
 
-> **Secret handling:** the token is a full-access credential — treat it like a password.
-> Never commit `.env`, paste the token into a chat, or print it. If it leaks, revoke it
-> in BotFather. `.env` and the `*.db` files are gitignored.
+> **Secret handling:** the token and `DATABASE_URL` are full-access credentials — treat
+> them like passwords. Never commit `.env`, paste them into a chat, or print them. If
+> the token leaks, revoke it in BotFather. `.env` is gitignored.
 
 ### 3. Apply one-time bot configuration
 
@@ -161,17 +163,20 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 ## Tests
 
 ```bash
+export TEST_DATABASE_URL=postgresql://user:password@localhost:5432/reminders_test
 python -m unittest discover -s tests
 ```
 
 Covers offset computation, past-offset skipping, UTC↔timezone conversion, the "due now"
-query, and input parsing — no token or network required.
+query, and input parsing — no token or network required. `TEST_DATABASE_URL` must point
+at a scratch PostgreSQL database (never production) — the DB-backed tests truncate its
+tables before each test.
 
 ## Tech
 
 - Python 3.11+ (developed on 3.13)
 - [`python-telegram-bot`](https://python-telegram-bot.org/) (async; `[job-queue]` extra)
-- SQLite via stdlib `sqlite3`; `datetime` + `zoneinfo` for timezones
+- PostgreSQL via `psycopg` (v3); `datetime` + `zoneinfo` for timezones
 - Long-polling (`getUpdates`) — works behind NAT, no public endpoint
 
 ## License

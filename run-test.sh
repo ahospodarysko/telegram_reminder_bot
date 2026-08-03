@@ -1,6 +1,6 @@
 #!/bin/bash
 # Convenience wrapper: run the bot against the TEST bot for development.
-# Sets BOT_ENV=test (selecting TEST_BOT_TOKEN + reminders.test.db) and defers to run.sh,
+# Sets BOT_ENV=test (selecting TEST_BOT_TOKEN + TEST_DATABASE_URL) and defers to run.sh,
 # which loads .env and launches the bot under the project virtualenv.
 #
 #   ./run-test.sh

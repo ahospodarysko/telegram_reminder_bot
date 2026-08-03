@@ -1,3 +1,7 @@
 # Telegram bot framework. The [job-queue] extra pulls in APScheduler, used by the
 # minute polling loop that fires due reminders. Async API (v20+).
 python-telegram-bot[job-queue]==22.7
+
+# PostgreSQL driver (v3). The [binary] extra ships prebuilt libpq so no system Postgres
+# dev headers/compiler are needed to install it.
+psycopg[binary]==3.2.3
