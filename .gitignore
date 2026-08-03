@@ -1,7 +1,7 @@
 # Secrets
 .env
 
-# SQLite database (runtime data)
+# Legacy SQLite database files (pre-PostgreSQL)
 *.db
 *.db-journal
 *.db-wal

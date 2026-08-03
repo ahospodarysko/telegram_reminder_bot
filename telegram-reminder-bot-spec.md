@@ -140,7 +140,7 @@ Four logical components:
    replies. Created via BotFather, which issues the bot token.
 2. **Parser** — converts a user message into a structured reminder (text + due
    datetime). v1 uses a strict format; natural-language parsing is a later add-on.
-3. **Storage** — SQLite database holding reminders and their ping occurrences.
+3. **Storage** — PostgreSQL database holding reminders and their ping occurrences.
 4. **Scheduler** — a polling loop that fires due reminders.
 
 ### 4.1 Telegram connection mode
@@ -312,7 +312,7 @@ onboard users from a website or printed code.
 - **Language:** Python 3.11+
 - **Telegram library:** `python-telegram-bot` (mature; supports reply/inline
   keyboards, callback queries, and a `JobQueue` if needed).
-- **Storage:** SQLite (single-file, zero-config; more than enough for personal use).
+- **Storage:** PostgreSQL, via the `psycopg` (v3) driver.
 - **Datetime handling:** standard library `datetime` + `zoneinfo` for timezones.
   Optional `dateparser` later for natural-language dates.
 - **Bot creation:** BotFather → bot token (handled as a secret — see Section 8).
