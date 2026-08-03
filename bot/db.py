@@ -69,13 +69,17 @@ def from_db(value: datetime) -> datetime:
 def connect(dsn: str) -> psycopg.Connection:
     """Open a PostgreSQL connection with dict-style row access.
 
-    Autocommit is left off (the psycopg default): callers wrap writes in
-    ``with conn.transaction():`` blocks, which commit on success and roll back on
-    exception without closing the connection (unlike plain ``with conn:``, whose
-    ``__exit__`` also closes it — fine for a one-shot script, wrong for a long-lived
-    connection reused across requests).
+    Autocommit is on: this connection is long-lived and shared across requests, and
+    many read calls run a bare ``conn.execute(...)`` outside any transaction block. With
+    autocommit off, a bare execute silently opens a transaction; any later
+    ``with conn.transaction():`` block then nests as a savepoint instead of the
+    outermost transaction, so it only releases the savepoint on exit rather than
+    committing — writes stay visible to this connection but never reach the database,
+    and are lost on disconnect. With autocommit on, bare statements commit immediately,
+    while ``with conn.transaction():`` still runs its block as a real atomic
+    transaction (BEGIN/COMMIT, or ROLLBACK on exception).
     """
-    return psycopg.connect(dsn, row_factory=dict_row)
+    return psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
 
 
 def init_db(conn: psycopg.Connection) -> None:
