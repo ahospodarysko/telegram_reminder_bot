@@ -13,7 +13,7 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
-# Export every variable defined in .env (BOT_TOKEN, DEFAULT_TZ, DB_PATH, ...).
+# Export every variable defined in .env (BOT_TOKEN, DEFAULT_TZ, DATABASE_URL, ...).
 set -a
 # shellcheck disable=SC1091
 source .env

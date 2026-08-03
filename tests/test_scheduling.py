@@ -3,6 +3,7 @@ conversion, the "due now" query, and input parsing."""
 
 from __future__ import annotations
 
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,25 @@ UTC = timezone.utc
 
 def labels(occurrences):
     return [label for label, _ in occurrences]
+
+
+def connect_test_db():
+    """Open a connection to a scratch PostgreSQL database, wiped to a clean slate.
+
+    Requires ``TEST_DATABASE_URL`` (see .env.example) — point it at a database used
+    only for tests, never the production one. Every call truncates all tables so tests
+    stay isolated from each other, matching the old sqlite ``":memory:"`` behaviour.
+    """
+    dsn = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not dsn:
+        raise RuntimeError(
+            "TEST_DATABASE_URL is not set — point it at a scratch PostgreSQL database "
+            "to run the DB-backed tests (see .env.example)."
+        )
+    conn = db.connect(dsn)
+    db.init_db(conn)
+    db.reset_all_tables(conn)
+    return conn
 
 
 class ComputeOccurrencesTests(unittest.TestCase):
@@ -80,8 +100,7 @@ class TimezoneConversionTests(unittest.TestCase):
 
 class DueOccurrenceQueryTests(unittest.TestCase):
     def setUp(self):
-        self.conn = db.connect(":memory:")
-        db.init_db(self.conn)
+        self.conn = connect_test_db()
         self.now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
         db.upsert_user(self.conn, 1, "UTC", self.now)
 
@@ -295,8 +314,7 @@ class MonthlyPlanTests(unittest.TestCase):
 
 class RollForwardTests(unittest.TestCase):
     def setUp(self):
-        self.conn = db.connect(":memory:")
-        db.init_db(self.conn)
+        self.conn = connect_test_db()
         self.now = datetime(2026, 6, 6, 12, 0, tzinfo=UTC)
         db.upsert_user(self.conn, 1, "UTC", self.now)
 
@@ -357,8 +375,7 @@ class NotePingTests(unittest.TestCase):
         self.assertLessEqual(result, now + NOTE_INTERVAL)
 
     def test_roll_note_advances_reminder(self):
-        conn = db.connect(":memory:")
-        db.init_db(conn)
+        conn = connect_test_db()
         now = datetime(2026, 7, 9, 12, 0, tzinfo=UTC)
         db.upsert_user(conn, 1, self.TZ, now)
         first = now - timedelta(minutes=1)
@@ -377,8 +394,7 @@ class NotePingTests(unittest.TestCase):
 
 class PurgeExpiredTests(unittest.TestCase):
     def setUp(self):
-        self.conn = db.connect(":memory:")
-        db.init_db(self.conn)
+        self.conn = connect_test_db()
         self.now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
         self.cutoff = self.now - EXPIRED_RETENTION
         db.upsert_user(self.conn, 1, "UTC", self.now)
@@ -389,9 +405,9 @@ class PurgeExpiredTests(unittest.TestCase):
     def _add_one_shot(self, due, occurrences=(), sent=True):
         rid = db.add_reminder(self.conn, 1, "Once", due, list(occurrences), self.now)
         if sent:
-            with self.conn:
+            with self.conn.transaction():
                 self.conn.execute(
-                    "UPDATE occurrences SET sent = 1 WHERE reminder_id = ?", (rid,)
+                    "UPDATE occurrences SET sent = 1 WHERE reminder_id = %s", (rid,)
                 )
         return rid
 
@@ -401,8 +417,8 @@ class PurgeExpiredTests(unittest.TestCase):
         self.assertEqual(db.purge_expired_reminders(self.conn, self.cutoff), 1)
         self.assertIsNone(db.get_reminder(self.conn, rid))
         count = self.conn.execute(
-            "SELECT COUNT(*) FROM occurrences WHERE reminder_id = ?", (rid,)
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS count FROM occurrences WHERE reminder_id = %s", (rid,)
+        ).fetchone()["count"]
         self.assertEqual(count, 0)
 
     def test_keeps_within_retention(self):

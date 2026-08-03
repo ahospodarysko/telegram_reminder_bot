@@ -7,7 +7,7 @@ import logging
 from telegram.ext import Application
 
 from . import db, i18n
-from .config import get_db_path, get_token
+from .config import get_database_url, get_token
 from .handlers import register_handlers
 from .scheduler import tick
 
@@ -33,7 +33,7 @@ def build_application() -> Application:
     """Construct the configured Application (token from env, DB initialised, handlers wired)."""
     application = Application.builder().token(get_token()).post_init(_set_bot_description).build()
 
-    conn = db.connect(get_db_path())
+    conn = db.connect(get_database_url())
     db.init_db(conn)
     application.bot_data["db"] = conn
 
