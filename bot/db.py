@@ -175,8 +175,9 @@ def add_reminder(
 ) -> int:
     """Insert a reminder and its occurrence rows in a single transaction.
 
-    ``recurrence`` is ``'none'`` (one-shot), ``'monthly'``, or ``'note'`` (periodic
-    nudges, no real deadline); ``anchor_day`` is the 1–31 day-of-month a monthly
+    ``recurrence`` is ``'none'`` (one-shot), ``'weekly'``, ``'monthly'``, or ``'note'``
+    (periodic nudges, no real deadline); ``anchor_day`` is the 1–31 day-of-month a
+    monthly reminder repeats on, or the ISO weekday (Monday=1..Sunday=7) a weekly
     reminder repeats on (``None`` otherwise).
 
     Returns:

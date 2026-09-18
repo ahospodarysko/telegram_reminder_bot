@@ -20,6 +20,7 @@ from .scheduling import (
     MONTHLY_OFFSETS,
     next_monthly_due,
     next_note_ping,
+    next_weekly_due,
     plan_occurrences,
     utcnow,
 )
@@ -28,16 +29,23 @@ logger = logging.getLogger(__name__)
 
 
 def roll_recurring(
-    conn, reminder_id: int, due_at_utc_str: str, anchor_day: int, tz_name: str, now_utc
+    conn, reminder_id: int, due_at_utc_str: str, anchor_day: int, recurrence: str,
+    tz_name: str, now_utc,
 ):
     """Advance a due recurring reminder to its next cycle; return the new deadline (UTC).
 
-    Computes the next monthly deadline (DST-correct, short-month clamped, catching up past
-    several months if needed), plans that cycle's pings, and persists both atomically.
+    Computes the next deadline (DST-correct, catching up past several cycles if needed)
+    and plans that cycle's pings, persisting both atomically. Monthly reminders clamp to
+    the month's length and ping 48h/24h ahead plus on the day; weekly reminders repeat
+    every 7 days and ping 24h/2h ahead, like one-shot reminders.
     """
     prev_due = db.from_db(due_at_utc_str)
-    next_due = next_monthly_due(prev_due, anchor_day, tz_name, now_utc)
-    occurrences = plan_occurrences(next_due, now_utc, tz_name, MONTHLY_OFFSETS)
+    if recurrence == "weekly":
+        next_due = next_weekly_due(prev_due, tz_name, now_utc)
+        occurrences = plan_occurrences(next_due, now_utc, tz_name)
+    else:
+        next_due = next_monthly_due(prev_due, anchor_day, tz_name, now_utc)
+        occurrences = plan_occurrences(next_due, now_utc, tz_name, MONTHLY_OFFSETS)
     db.advance_recurring(conn, reminder_id, next_due, occurrences)
     return next_due
 
@@ -102,7 +110,7 @@ async def tick(context: ContextTypes.DEFAULT_TYPE) -> None:
                 roll_note(conn, rec["reminder_id"], rec["due_at_utc"], rec["timezone"], now)
             else:
                 roll_recurring(conn, rec["reminder_id"], rec["due_at_utc"],
-                               rec["anchor_day"], rec["timezone"], now)
+                               rec["anchor_day"], rec["recurrence"], rec["timezone"], now)
         except Exception:  # noqa: BLE001 - one bad reminder shouldn't stop the rest.
             logger.exception("Failed to roll recurring reminder %s", rec["reminder_id"])
 

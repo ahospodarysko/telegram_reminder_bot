@@ -38,6 +38,8 @@ from .scheduling import (
     utcnow,
 )
 
+_RECURRENCE_TYPES = ("monthly", "weekly")
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +76,7 @@ def _confirmation(
     due = i18n.format_when(due_at_utc, tz, lang)
     pings = "; ".join(i18n.format_when(fire, tz, lang) for _, fire in occurrences)
     if recurrence != "none":
-        rule = _recurrence_rule(lang, anchor_day)
+        rule = _recurrence_rule(lang, anchor_day, recurrence, due_at_utc, tz)
         if occurrences:
             return i18n.t(lang, "confirm_recurring", note=note, rule=rule, due=due, tz=tz, pings=pings)
         return i18n.t(lang, "confirm_recurring_none", note=note, rule=rule, due=due, tz=tz)
@@ -83,10 +85,21 @@ def _confirmation(
     return i18n.t(lang, "confirm_none", note=note, due=due, tz=tz)
 
 
-def _recurrence_rule(lang: str, anchor_day: int | None, recurrence: str = "monthly") -> str:
-    """The localized repeat-rule line for a recurring reminder."""
+def _recurrence_rule(
+    lang: str, anchor_day: int | None, recurrence: str = "monthly",
+    due_at_utc=None, tz_name: str | None = None,
+) -> str:
+    """The localized repeat-rule line for a recurring reminder.
+
+    Weekly needs the current cycle's deadline (``due_at_utc``/``tz_name``) to show the
+    weekday and time the user picked — unlike monthly, that time isn't fixed.
+    """
     if recurrence == "note":
         return i18n.t(lang, "recur_note_desc")
+    if recurrence == "weekly":
+        local = utc_to_local(due_at_utc, tz_name)
+        return i18n.t(lang, "recur_weekly_desc", weekday=i18n.weekday_name(anchor_day, lang),
+                       time=f"{local.hour:02d}:{local.minute:02d}")
     return i18n.t(lang, "recur_monthly_desc", day=anchor_day)
 
 
@@ -95,6 +108,9 @@ def _format_hint(lang: str, rtype: str = "basic") -> dict[str, str]:
     if rtype == "monthly":
         return {"hint": i18n.t(lang, "input_hint_monthly"),
                 "example": i18n.t(lang, "input_example_monthly")}
+    if rtype == "weekly":
+        return {"hint": i18n.t(lang, "input_hint_weekly"),
+                "example": i18n.t(lang, "input_example_weekly")}
     return {"hint": i18n.t(lang, "input_hint"), "example": i18n.t(lang, "input_example")}
 
 
@@ -155,7 +171,8 @@ def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtyp
     context.user_data.pop("awaiting_timezone", None)
     context.user_data.pop("awaiting_support", None)
     lang = _user_lang(context, chat_id)
-    key = {"monthly": "new_prompt_monthly", "note": "new_prompt_note"}.get(rtype, "new_prompt")
+    key = {"monthly": "new_prompt_monthly", "weekly": "new_prompt_weekly",
+           "note": "new_prompt_note"}.get(rtype, "new_prompt")
     return i18n.t(lang, key, **_format_hint(lang, rtype))
 
 
@@ -194,7 +211,7 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         )
         return
 
-    force = "monthly" if rtype == "monthly" else "none"
+    force = rtype if rtype in _RECURRENCE_TYPES else "none"
     try:
         parsed = parse_reminder_input(text, now_local, force_recurrence=force)
         due_at_utc = local_to_utc(parsed.when, tz_name)
@@ -205,9 +222,10 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         )
         return
 
-    if parsed.recurrence != "none":
+    if parsed.recurrence == "monthly":
         occurrences = plan_occurrences(due_at_utc, now, tz_name, MONTHLY_OFFSETS)
     else:
+        # Weekly and one-shot both use the same -24h/-2h pings.
         occurrences = plan_occurrences(due_at_utc, now, tz_name)
     db.add_reminder(conn, chat_id, parsed.note, due_at_utc, occurrences, now,
                     recurrence=parsed.recurrence, anchor_day=parsed.anchor_day)
@@ -251,7 +269,7 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pings = " " + i18n.t(lang, "list_no_pending")
         recurring = r["recurrence"] != "none"
         if recurring and due:
-            rule = _recurrence_rule(lang, r["anchor_day"], r["recurrence"])
+            rule = _recurrence_rule(lang, r["anchor_day"], r["recurrence"], due, tz_name)
             body = i18n.t(lang, "list_item_recurring", text=r["text"], when=when, rule=rule, pings=pings)
         else:
             body = i18n.t(lang, "list_item", text=r["text"], when=when, pings=pings)
@@ -318,6 +336,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             **_format_hint(lang),
             hint_monthly=i18n.t(lang, "input_hint_monthly"),
             example_monthly=i18n.t(lang, "input_example_monthly"),
+            hint_weekly=i18n.t(lang, "input_hint_weekly"),
+            example_weekly=i18n.t(lang, "input_example_weekly"),
         ),
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -445,7 +465,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if action == "newtype":
-        rtype = parts[1] if len(parts) > 1 and parts[1] in ("monthly", "basic", "note") else "basic"
+        rtype = parts[1] if len(parts) > 1 and parts[1] in ("monthly", "weekly", "basic", "note") else "basic"
         prompt = _begin_typed_reminder(context, chat_id, rtype)
         await query.answer()
         await context.bot.send_message(chat_id=chat_id, text=prompt, parse_mode=ParseMode.MARKDOWN)
