@@ -18,6 +18,7 @@ from bot.scheduling import (
     local_to_utc,
     next_monthly_due,
     next_note_ping,
+    next_weekly_due,
     parse_reminder_input,
     plan_occurrences,
     shift_out_of_quiet_hours,
@@ -252,6 +253,86 @@ class RecurringParsingTests(unittest.TestCase):
         self.assertEqual(p.when, datetime(2026, 6, 21, 16, 0))
 
 
+class WeeklyParsingTests(unittest.TestCase):
+    # Monday, matching the example in the request: "Saturday @ 11:00".
+    NOW = datetime(2026, 6, 1, 12, 0)
+
+    def test_weekly_keyword(self):
+        p = parse_reminder_input("Team sync @ weekly Saturday 11:00", self.NOW)
+        self.assertEqual(p.note, "Team sync")
+        self.assertEqual(p.recurrence, "weekly")
+        self.assertEqual(p.anchor_day, 6)  # ISO: Saturday = 6
+        self.assertEqual(p.when, datetime(2026, 6, 6, 11, 0))
+
+    def test_every_week_synonym(self):
+        p = parse_reminder_input("Team sync @ every week Saturday 11:00", self.NOW)
+        self.assertEqual((p.recurrence, p.anchor_day), ("weekly", 6))
+
+    def test_ukrainian_synonyms(self):
+        for text in ("Нарада @ щотижня субота 11:00", "Нарада @ кожного тижня субота 11:00"):
+            p = parse_reminder_input(text, self.NOW)
+            self.assertEqual((p.recurrence, p.anchor_day), ("weekly", 6), text)
+            self.assertEqual(p.when, datetime(2026, 6, 6, 11, 0), text)
+
+    def test_first_due_rolls_to_next_week_when_passed(self):
+        # Monday 09:00 has already passed on Monday 12:00 -> first due is next Monday.
+        p = parse_reminder_input("x @ weekly Monday 09:00", self.NOW)
+        self.assertEqual(p.when, datetime(2026, 6, 8, 9, 0))
+        self.assertEqual(p.anchor_day, 1)
+
+    def test_bad_weekly_raises(self):
+        for bad in ("x @ weekly", "x @ weekly 11:00", "x @ weekly Funday 11:00"):
+            with self.assertRaises(ParseError, msg=bad):
+                parse_reminder_input(bad, self.NOW)
+
+    def test_force_weekly_without_keyword(self):
+        # Type picker chose weekly: no keyword needed, just weekday + time.
+        p = parse_reminder_input("Team sync @ Saturday 11:00", self.NOW, force_recurrence="weekly")
+        self.assertEqual((p.recurrence, p.anchor_day), ("weekly", 6))
+        self.assertEqual(p.when, datetime(2026, 6, 6, 11, 0))
+
+    def test_force_weekly_strips_typed_keyword(self):
+        p = parse_reminder_input("Team sync @ weekly Saturday 11:00", self.NOW, force_recurrence="weekly")
+        self.assertEqual((p.recurrence, p.anchor_day), ("weekly", 6))
+
+
+class WeeklyPlanTests(unittest.TestCase):
+    def test_matches_one_shot_offsets(self):
+        # From the request: Saturday @ 11:00 -> ping Friday 11:00 (-24h) and Saturday
+        # 09:00 (-2h), same as a one-shot reminder's OFFSETS (not MONTHLY_OFFSETS).
+        due = datetime(2026, 6, 6, 11, 0, tzinfo=UTC)  # Saturday
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        self.assertEqual(
+            plan_occurrences(due, now, "UTC"),
+            [
+                ("-24h", datetime(2026, 6, 5, 11, 0, tzinfo=UTC)),
+                ("-2h", datetime(2026, 6, 6, 9, 0, tzinfo=UTC)),
+            ],
+        )
+
+
+class NextWeeklyDueTests(unittest.TestCase):
+    def test_advances_by_seven_days(self):
+        prev = datetime(2026, 6, 6, 11, 0, tzinfo=UTC)  # Saturday
+        self.assertEqual(next_weekly_due(prev, "UTC", prev),
+                         datetime(2026, 6, 13, 11, 0, tzinfo=UTC))
+
+    def test_catch_up_skips_fully_past_weeks(self):
+        prev = datetime(2026, 6, 6, 11, 0, tzinfo=UTC)
+        now = datetime(2026, 6, 25, 0, 0, tzinfo=UTC)  # nearly 3 weeks later
+        self.assertEqual(next_weekly_due(prev, "UTC", now),
+                         datetime(2026, 6, 27, 11, 0, tzinfo=UTC))
+
+    def test_dst_keeps_wall_clock(self):
+        # 09:00 local on Saturday must stay 09:00 across the spring DST change in New
+        # York (EST UTC-5 -> EDT UTC-4): the UTC instant shifts from 14:00 to 13:00.
+        tz = "America/New_York"
+        prev = local_to_utc(datetime(2026, 3, 7, 9, 0), tz)  # 14:00 UTC (EST)
+        result = next_weekly_due(prev, tz, prev)
+        self.assertEqual(result, datetime(2026, 3, 14, 13, 0, tzinfo=UTC))
+        self.assertEqual(utc_to_local(result, tz).hour, 9)
+
+
 class NextMonthlyDueTests(unittest.TestCase):
     def test_clamps_to_feb_non_leap(self):
         prev = datetime(2026, 1, 31, 9, 0, tzinfo=UTC)
@@ -345,12 +426,31 @@ class RollForwardTests(unittest.TestCase):
         rid = self._add_monthly(datetime(2026, 6, 5, 9, 0, tzinfo=UTC), anchor_day=5)
         row = db.get_due_recurring(self.conn, self.now)[0]
         next_due = roll_recurring(self.conn, row["reminder_id"], row["due_at_utc"],
-                                  row["anchor_day"], row["timezone"], self.now)
+                                  row["anchor_day"], row["recurrence"], row["timezone"], self.now)
         self.assertEqual(next_due, datetime(2026, 7, 5, 9, 0, tzinfo=UTC))
         r = db.get_reminder(self.conn, rid)
         self.assertEqual(db.from_db(r["due_at_utc"]), next_due)
         self.assertEqual(r["status"], "active")
         self.assertTrue(db.get_pending_occurrences(self.conn, rid))
+
+    def _add_weekly(self, due, anchor_day=6):
+        return db.add_reminder(
+            self.conn, 1, "Team sync", due, [], self.now,
+            recurrence="weekly", anchor_day=anchor_day,
+        )
+
+    def test_roll_forward_advances_and_replans_weekly(self):
+        rid = self._add_weekly(datetime(2026, 6, 6, 11, 0, tzinfo=UTC), anchor_day=6)
+        row = db.get_due_recurring(self.conn, self.now)[0]
+        self.assertEqual(row["recurrence"], "weekly")
+        next_due = roll_recurring(self.conn, row["reminder_id"], row["due_at_utc"],
+                                  row["anchor_day"], row["recurrence"], row["timezone"], self.now)
+        self.assertEqual(next_due, datetime(2026, 6, 13, 11, 0, tzinfo=UTC))
+        r = db.get_reminder(self.conn, rid)
+        self.assertEqual(db.from_db(r["due_at_utc"]), next_due)
+        # Weekly rolls plan the one-shot -24h/-2h pings, not the monthly 48h/24h/day-of.
+        pending = db.get_pending_occurrences(self.conn, rid)
+        self.assertEqual([p["offset"] for p in pending], ["-24h", "-2h"])
 
 
 class NotePingTests(unittest.TestCase):

@@ -2,8 +2,9 @@
 
 A Telegram bot for timed reminders. Save a note with a deadline and the bot pings you
 **24 hours before** and **2 hours before** the deadline.
-Reminders can be **one-time**, **monthly** — repeating on the same day each month until
-you stop it — or a dateless **note** (a grocery list, anything not to forget) that
+Reminders can be **one-time**, **weekly** — repeating on the same weekday and time each
+week, with the same 24h/2h pings — **monthly** — repeating on the same day each month
+until you stop it — or a dateless **note** (a grocery list, anything not to forget) that
 nudges you **every 2 hours** until you close it.
 The interface is available in **English and Ukrainian** — chosen on `/start` and
 changeable anytime with `/language`.
@@ -24,6 +25,12 @@ tap rather than type for almost everything.
   and date *input* accepts month names in either language (`June 21` or `21 червня`).
 - **Timezone:** new users default to the host machine's timezone (or `DEFAULT_TZ`).
   Change yours anytime with `/timezone`.
+- **Weekly reminders:** pick *Weekly* when creating a reminder and give a weekday and
+  time (e.g. `Team sync @ Saturday 11:00`). It pings **24h and 2h before** the
+  deadline, same as a one-time reminder (here: Friday 11:00 and Saturday 09:00). The
+  deadline is recomputed in local time each cycle, so the time stays stable across DST.
+  The series rolls forward automatically each week until you tap **Stop repeating** on
+  a ping (or **Close** in `/list`).
 - **Monthly reminders:** pick *Monthly* when creating a reminder and give just a day
   (e.g. `Pay rent @ 5`). Every month it pings **48h and 24h ahead** and **at 09:00 on
   the day itself**; short months clamp to the last day (a 31st becomes 28/29 Feb,
@@ -35,7 +42,7 @@ tap rather than type for almost everything.
   a nudge or close it in `/list`. Notes are never auto-deleted.
 - **Auto-cleanup:** a one-time reminder whose deadline has passed stays in `/list` for
   **5 days** (with a note showing when it will disappear), then is deleted automatically.
-  Monthly reminders are never auto-deleted — they repeat until stopped.
+  Weekly and monthly reminders are never auto-deleted — they repeat until stopped.
 - **Quiet hours:** no ping fires between **22:00 and 08:00** in the user's local time.
   Any ping that would land in that window is pushed to 08:00 that morning (e.g. a 2h-ahead
   ping for a 09:00 deadline moves from 07:00 to 08:00). Pings that collapse onto the same
@@ -51,7 +58,7 @@ tap rather than type for almost everything.
 bot/
   config.py      # BOT_TOKEN + default timezone resolution
   db.py          # PostgreSQL schema + CRUD (source of truth)
-  scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing, monthly recurrence
+  scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing, weekly/monthly recurrence
   i18n.py        # English + Ukrainian strings, localized dates, button label sets
   keyboards.py   # reply + inline keyboards (language-aware)
   handlers.py    # commands, menu buttons, free text, inline callbacks
@@ -139,6 +146,8 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
   - **🔔 Basic** → send `note text @ Month Day HH:MM`, e.g. `Doctor appointment @ June 21 16:00`.
     The year is assumed to be the current one (rolling to next year if that date has already
     passed), and the time is 24-hour.
+  - **📅 Weekly** → send `note text @ Weekday HH:MM`, e.g. `Team sync @ Saturday 11:00`.
+    It repeats every week — pings 24h and 2h before the deadline, same as Basic.
   - **🔁 Monthly** → send `note text @ Day` (just the day, no time), e.g. `Pay rent @ 5`.
     It repeats every month — pings 48h and 24h ahead and at 09:00 on the day.
   - **📝 Note (every 2h)** → send just the text, e.g. `Buy groceries: milk, bread`.
@@ -146,7 +155,7 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 
   The bot echoes how it understood the input and lists every scheduled ping time.
 - **📋 My reminders** (or `/list`) → each active reminder with an inline **✖ Close**
-  button (for a monthly one, Close stops the series).
+  button (for a weekly or monthly one, Close stops the series).
 - **🌍 Timezone** (or `/timezone [IANA]`) → view or change your timezone.
 
 ### Commands
@@ -154,7 +163,7 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 | Command | Purpose |
 |---|---|
 | `/start` | Register and show the menu |
-| `/remind` | Create a reminder (one-time, monthly, or note) |
+| `/remind` | Create a reminder (one-time, weekly, monthly, or note) |
 | `/list` | List active reminders (with an inline ✖ Close on each) |
 | `/timezone [IANA]` | View or set your timezone |
 | `/language` | Switch between English and Ukrainian |
@@ -186,5 +195,5 @@ MIT — see [LICENSE](LICENSE).
 ## Out of scope
 
 Natural-language dates, customizable offsets, and shared lists are future extensions
-(see `telegram-reminder-bot-spec.md` §11). Recurrence beyond monthly — weekly, yearly,
+(see `telegram-reminder-bot-spec.md` §11). Recurrence beyond weekly/monthly — yearly,
 "every N months", or "nth weekday" — is designed for but not yet implemented.

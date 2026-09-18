@@ -60,14 +60,18 @@ def reminder_cancel_action(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
 
 
 def reminder_type_picker(lang: str) -> InlineKeyboardMarkup:
-    """Inline buttons to choose a reminder type (callback ``newtype:monthly|basic|note``)."""
+    """Inline buttons to choose a reminder type (callback
+    ``newtype:monthly|weekly|basic|note``)."""
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(i18n.t(lang, "btn_type_basic"), callback_data="newtype:basic"),
-                InlineKeyboardButton(i18n.t(lang, "btn_type_monthly"), callback_data="newtype:monthly"),
+                InlineKeyboardButton(i18n.t(lang, "btn_type_weekly"), callback_data="newtype:weekly"),
             ],
-            [InlineKeyboardButton(i18n.t(lang, "btn_type_note"), callback_data="newtype:note")],
+            [
+                InlineKeyboardButton(i18n.t(lang, "btn_type_monthly"), callback_data="newtype:monthly"),
+                InlineKeyboardButton(i18n.t(lang, "btn_type_note"), callback_data="newtype:note"),
+            ],
         ]
     )
 

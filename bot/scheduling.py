@@ -29,6 +29,9 @@ MONTHLY_OFFSETS: list[tuple[str, timedelta]] = [
 ]
 MONTHLY_HOUR = 9  # 09:00 local
 
+# Weekly reminders use the same -24h/-2h pings as one-shot reminders (see OFFSETS) —
+# unlike monthly, the deadline time IS typed by the user (day-of-week + HH:MM).
+
 # How long a passed one-shot reminder stays visible in /list after its deadline before
 # it is deleted automatically. Recurring reminders are never auto-deleted — they roll
 # forward until the user stops them.
@@ -63,17 +66,32 @@ MONTHS: dict[str, int] = {
     for i, name in enumerate(names, start=1)
 }
 
+# Weekday names accepted in weekly input, mapped (lowercased) to ISO weekday number
+# (Monday=1 .. Sunday=7, matching ``datetime.isoweekday()``). Covers English full +
+# abbreviated, and Ukrainian nominative.
+_EN_WD_FULL = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_EN_WD_ABBR = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_UK_WD = ["понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя"]
+WEEKDAYS: dict[str, int] = {
+    name: i
+    for names in (_EN_WD_FULL, _EN_WD_ABBR, _UK_WD)
+    for i, name in enumerate(names, start=1)
+}
+
 _TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
 
-# Recurrence keywords accepted on the date side of the input (after the separator). All
-# map to 'monthly' in v1 — the schema/code allow weekly/yearly later (see the plan).
+# Recurrence keywords accepted on the date side of the input (after the separator).
 # Multi-word phrases are listed so a prefix match strips the whole phrase; matching is
 # case-insensitive and language-agnostic (EN + UK), like MONTHS.
 _RECURRENCE_KEYWORDS: list[tuple[str, str]] = [
     ("every month", "monthly"),
+    ("every week", "weekly"),
     ("кожного місяця", "monthly"),
+    ("кожного тижня", "weekly"),
     ("monthly", "monthly"),
+    ("weekly", "weekly"),
     ("щомісяця", "monthly"),
+    ("щотижня", "weekly"),
 ]
 
 
@@ -247,7 +265,9 @@ class ParsedReminder(NamedTuple):
     ``when`` is the first deadline as naive wall-clock time in the user's timezone (the
     caller converts it to UTC). For one-shot reminders ``recurrence`` is ``'none'`` and
     ``anchor_day`` is ``None``; for monthly ones ``recurrence`` is ``'monthly'`` and
-    ``anchor_day`` is the original 1–31 day-of-month to repeat on.
+    ``anchor_day`` is the original 1–31 day-of-month to repeat on; for weekly ones
+    ``recurrence`` is ``'weekly'`` and ``anchor_day`` is the ISO weekday (Monday=1 ..
+    Sunday=7) to repeat on.
     """
 
     note: str
@@ -271,19 +291,25 @@ def parse_reminder_input(
       deadline time is fixed at :data:`MONTHLY_HOUR`:00 (a typed time is ignored). The
       first deadline is that day this month if still ahead, otherwise next month (day
       clamped to the month's length).
+    - Recurring weekly: ``"note @ weekly Weekday HH:MM"`` (or ``every week`` / Ukrainian
+      ``щотижня`` / ``кожного тижня``). Both the day-of-week and the time are given —
+      unlike monthly, the time is not fixed. Pings follow the one-shot :data:`OFFSETS`
+      (-24h/-2h), not :data:`MONTHLY_OFFSETS`. The first deadline is that weekday this
+      week if still ahead, otherwise next week.
 
     ``force_recurrence`` pins the type instead of auto-detecting it from a keyword: the
-    type-picker flow passes ``'monthly'`` (parse the day, keyword optional) or
-    ``'none'`` (parse as one-shot). Left ``None`` (e.g. ``/remind``), the keyword decides.
+    type-picker flow passes ``'monthly'`` / ``'weekly'`` (keyword optional) or ``'none'``
+    (parse as one-shot). Left ``None`` (e.g. ``/remind``), the keyword decides.
 
     Args:
         text: the raw user input.
         now_local: current time in the user's timezone, naive (``tzinfo is None``).
-        force_recurrence: ``'monthly'`` / ``'none'`` to pin the type, or ``None`` to detect.
+        force_recurrence: ``'monthly'`` / ``'weekly'`` / ``'none'`` to pin the type, or
+            ``None`` to detect.
 
     Raises:
         ParseError: with a ``.code`` (``missing_separator`` / ``empty_note`` /
-            ``bad_datetime`` / ``bad_recurrence``) the caller translates.
+            ``bad_datetime`` / ``bad_recurrence`` / ``bad_weekly``) the caller translates.
     """
     note_part, sep, datetime_part = text.rpartition(SEPARATOR)
     if not sep:
@@ -293,13 +319,18 @@ def parse_reminder_input(
     if not note:
         raise ParseError("empty_note")
 
-    if force_recurrence == "monthly":
+    if force_recurrence in ("monthly", "weekly"):
         # Type already chosen — strip the keyword if the user typed one anyway.
-        recurrence, remainder = "monthly", _match_recurrence(when)[1]
+        recurrence, remainder = force_recurrence, _match_recurrence(when)[1]
     elif force_recurrence == "none":
         recurrence, remainder = "none", when
     else:
         recurrence, remainder = _match_recurrence(when)
+
+    if recurrence == "weekly":
+        weekday, hour, minute = _parse_weekday(remainder)
+        first_due = _build_first_weekly(now_local, weekday, hour, minute)
+        return ParsedReminder(note, first_due, recurrence, weekday)
 
     if recurrence != "none":
         day = _parse_day(remainder)
@@ -345,6 +376,34 @@ def _parse_day(when: str) -> int:
     return day
 
 
+def _parse_weekday(when: str) -> tuple[int, int, int]:
+    """Extract ``(iso_weekday, hour, minute)`` from a weekly date side.
+
+    Unlike monthly, both the weekday name and the ``HH:MM`` time are required and are
+    used as typed — weekly deadlines have no fixed hour.
+
+    Raises:
+        ParseError("bad_weekly"): if the weekday name or a valid ``HH:MM`` is missing.
+    """
+    time_match = _TIME_RE.search(when)
+    if not time_match:
+        raise ParseError("bad_weekly")
+    hour, minute = int(time_match.group(1)), int(time_match.group(2))
+    if hour > 23 or minute > 59:
+        raise ParseError("bad_weekly")
+
+    rest = (when[: time_match.start()] + " " + when[time_match.end() :]).split()
+    weekday = None
+    for token in rest:
+        token = token.strip(".,").lower()
+        if token in WEEKDAYS:
+            weekday = WEEKDAYS[token]
+            break
+    if weekday is None:
+        raise ParseError("bad_weekly")
+    return weekday, hour, minute
+
+
 def _clamped_date(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
     """Build a naive datetime, clamping ``day`` to the month's last day (handles 29–31).
 
@@ -367,6 +426,45 @@ def _build_first_monthly(now_local: datetime, day: int, hour: int, minute: int) 
         year, month = _next_month(now_local.year, now_local.month)
         candidate = _clamped_date(year, month, day, hour, minute)
     return candidate
+
+
+def _build_first_weekly(now_local: datetime, weekday: int, hour: int, minute: int) -> datetime:
+    """First deadline for a weekly reminder: that ISO weekday this week if still ahead,
+    else next week."""
+    days_ahead = (weekday - now_local.isoweekday()) % 7
+    candidate = (now_local + timedelta(days=days_ahead)).replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    if candidate < now_local:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def next_weekly_due(prev_due_utc: datetime, tz_name: str, now_utc: datetime) -> datetime:
+    """Compute the next weekly deadline strictly after ``now_utc``.
+
+    Advances week-by-week from ``prev_due_utc`` (catch-up after downtime, mirroring
+    :func:`next_monthly_due`), rebuilding the deadline in the user's *local* time each
+    step so the wall-clock time is DST-stable. The weekday is preserved automatically by
+    stepping 7 local days at a time.
+
+    Args:
+        prev_due_utc: the current/just-passed deadline, timezone-aware UTC.
+        tz_name: the user's IANA timezone.
+        now_utc: current time, timezone-aware UTC.
+
+    Returns:
+        The next deadline as timezone-aware UTC.
+    """
+    local_prev = utc_to_local(prev_due_utc, tz_name)
+    hour, minute = local_prev.hour, local_prev.minute
+    candidate_local = local_prev
+    while True:
+        candidate_local = candidate_local + timedelta(days=7)
+        naive = candidate_local.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=None)
+        due_utc = local_to_utc(naive, tz_name)
+        if due_utc > now_utc:
+            return due_utc
 
 
 def next_monthly_due(

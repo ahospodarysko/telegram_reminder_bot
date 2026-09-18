@@ -45,6 +45,8 @@ TEXT: dict[str, dict[str, str]] = {
         "input_example": f"Doctor appointment {SEPARATOR} June 21 16:00",
         "input_hint_monthly": f"note text {SEPARATOR} Day",
         "input_example_monthly": f"Pay rent {SEPARATOR} 5",
+        "input_hint_weekly": f"note text {SEPARATOR} Weekday HH:MM",
+        "input_example_weekly": f"Team sync {SEPARATOR} Saturday 11:00",
         # buttons — reply menu
         "btn_new": "➕ New reminder",
         "btn_list": "📋 My reminders",
@@ -55,6 +57,7 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_cancel": "✖ Close",
         "btn_stop_repeating": "🛑 Stop repeating",
         "btn_type_monthly": "🔁 Monthly",
+        "btn_type_weekly": "📅 Weekly",
         "btn_type_basic": "🔔 Basic",
         "btn_type_note": "📝 Note (every 2h)",
         # language
@@ -71,8 +74,9 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "greeting": (
             "👋 Welcome! I'll help you not to forget things.\n\n"
-            "There are three reminder types:\n"
+            "There are four reminder types:\n"
             "🔔 *Basic* — one-time; pings 24h and 2h before the deadline\n"
+            "📅 *Weekly* — repeats every week; pings 24h and 2h before the deadline\n"
             "🔁 *Monthly* — repeats every month; pings 48h and 24h ahead and at 09:00 "
             "on the day\n"
             "📝 *Note* — a simple everyday note; nudges every 2 hours until you close it\n\n"
@@ -82,8 +86,9 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "help": (
             "🤖 *Reminder bot*\n\n"
-            "I'll help you not to forget things — one-time and monthly reminders, plus "
-            "quick notes that nudge you every 2 hours until you close them.\n"
+            "I'll help you not to forget things — one-time, weekly and monthly "
+            "reminders, plus quick notes that nudge you every 2 hours until you close "
+            "them.\n"
             "Reminders that would land at night (22:00–08:00) are moved to 08:00. All "
             "times use *your* timezone and a 24-hour clock.\n\n"
             "*Reminder types* — tap ➕ New reminder (or /remind), then choose:\n\n"
@@ -95,6 +100,12 @@ TEXT: dict[str, dict[str, str]] = {
             "is filled in automatically (rolls to next year if that date has passed); "
             "month names work in English or Ukrainian. After the deadline it stays in "
             "/list for 5 more days, then deletes itself.\n\n"
+            "📅 *Weekly* — repeats on the same weekday and time every week.\n"
+            "Send: `{hint_weekly}`\n"
+            "_Example:_ `{example_weekly}`\n"
+            "→ Pings 24h and 2h before the deadline, same as Basic (here: Saturday "
+            "11:00 gives Friday 11:00 and Saturday 09:00). Go to 📋 My reminders to "
+            "stop it.\n\n"
             "🔁 *Monthly* — repeats on the same day every month.\n"
             "Send: `{hint_monthly}` — just the day of the month, no time.\n"
             "_Example:_ `{example_monthly}`\n"
@@ -104,7 +115,7 @@ TEXT: dict[str, dict[str, str]] = {
             "Send plain text, e.g. `Buy groceries: milk, bread, eggs`\n"
             "→ I'll remind you every 2 hours. Go to 📋 My reminders to close it.\n\n"
             "*Commands*\n"
-            "• /remind — create a reminder (Basic, Monthly, or Note)\n"
+            "• /remind — create a reminder (Basic, Weekly, Monthly, or Note)\n"
             "• /list — active reminders with their upcoming pings (✖ Close removes one)\n"
             "• /timezone `[IANA]` — view or set your timezone, e.g. `/timezone Europe/Kyiv`\n"
             "• /language — switch English / Українська\n"
@@ -127,6 +138,11 @@ TEXT: dict[str, dict[str, str]] = {
             "_Example:_ `{example}`\nIt repeats on that day every month — I'll ping you "
             "48h and 24h ahead and at 09:00 on the day itself."
         ),
+        "new_prompt_weekly": (
+            "📅 Send your weekly reminder in this format:\n`{hint}`\n\n"
+            "_Example:_ `{example}`\nIt repeats on that weekday every week — I'll ping "
+            "you 24h and 2h before the deadline, same as a basic reminder."
+        ),
         "new_prompt_note": (
             "📝 Send your note — just the text, no date.\n\n"
             "_Example:_ `Buy groceries: milk, bread, eggs`\n"
@@ -148,6 +164,9 @@ TEXT: dict[str, dict[str, str]] = {
         # recurring
         "recur_monthly_desc": (
             "monthly on day {day} — reminders 48h and 24h ahead and at 09:00 on the day"
+        ),
+        "recur_weekly_desc": (
+            "weekly on {weekday} at {time} — reminders 24h and 2h before the deadline"
         ),
         "recur_note_desc": "every 2 hours",
         "confirm_recurring": (
@@ -205,12 +224,18 @@ TEXT: dict[str, dict[str, str]] = {
         "err_bad_recurrence": (
             "I couldn't read the day. Give a day of the month (1–31), e.g. “5”."
         ),
+        "err_bad_weekly": (
+            "I couldn't read the weekday/time. Give a weekday and a 24-hour time, "
+            "e.g. “{example}”."
+        ),
     },
     "uk": {
         "input_hint": f"текст {SEPARATOR} День Місяць ГГ:ХХ",
         "input_example": f"Прийом у лікаря {SEPARATOR} 21 червня 16:00",
         "input_hint_monthly": f"текст {SEPARATOR} День",
         "input_example_monthly": f"Оренда {SEPARATOR} 5",
+        "input_hint_weekly": f"текст {SEPARATOR} День_тижня ГГ:ХХ",
+        "input_example_weekly": f"Нарада {SEPARATOR} субота 11:00",
         "btn_new": "➕ Нове нагадування",
         "btn_list": "📋 Мої нагадування",
         "btn_timezone": "🌍 Часовий пояс",
@@ -219,6 +244,7 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_cancel": "✖ Закрити",
         "btn_stop_repeating": "🛑 Зупинити повтор",
         "btn_type_monthly": "🔁 Щомісячне",
+        "btn_type_weekly": "📅 Щотижневе",
         "btn_type_basic": "🔔 Стандартне",
         "btn_type_note": "📝 Нотатка (кожні 2 год)",
         "choose_language": "🌐 Choose your language / Оберіть мову:",
@@ -231,8 +257,10 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "greeting": (
             "👋 Вітаю! Допоможу нічого не забути.\n\n"
-            "Є три типи нагадувань:\n"
+            "Є чотири типи нагадувань:\n"
             "🔔 *Стандартне* — разове; нагадаю за 24 год і за 2 год до дедлайну\n"
+            "📅 *Щотижневе* — повторюється щотижня; нагадаю за 24 год і за 2 год до "
+            "дедлайну\n"
             "🔁 *Щомісячне* — повторюється щомісяця; нагадаю за 48 год, за 24 год і о "
             "09:00 у сам день\n"
             "📝 *Нотатка* — звичайна нотатка; нагадування кожні 2 години, доки не "
@@ -243,8 +271,8 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "help": (
             "🤖 *Бот нагадувань*\n\n"
-            "Допоможу нічого не забути — разові та щомісячні нагадування, а також "
-            "нотатки, що нагадують кожні 2 години, доки ви їх не закриєте.\n"
+            "Допоможу нічого не забути — разові, щотижневі та щомісячні нагадування, "
+            "а також нотатки, що нагадують кожні 2 години, доки ви їх не закриєте.\n"
             "Нагадування, що припадають на ніч (22:00–08:00), переносяться на 08:00. "
             "Усі часи — у *вашому* часовому поясі, формат 24-годинний.\n\n"
             "*Типи нагадувань* — натисніть ➕ Нове нагадування (або /remind) і оберіть:\n\n"
@@ -256,6 +284,12 @@ TEXT: dict[str, dict[str, str]] = {
             "автоматично (якщо дата вже минула — наступний рік); назви місяців — "
             "українською або англійською. Після дедлайну воно ще 5 днів лишається у "
             "/list, а потім видаляється автоматично.\n\n"
+            "📅 *Щотижневе* — повторюється того самого дня тижня й того самого часу.\n"
+            "Надішліть: `{hint_weekly}`\n"
+            "_Приклад:_ `{example_weekly}`\n"
+            "→ Нагадаю за 24 год і за 2 год до дедлайну, як і в стандартному (тут: "
+            "субота 11:00 дає п'ятницю 11:00 та суботу 09:00). Щоб зупинити, відкрийте "
+            "📋 Мої нагадування.\n\n"
             "🔁 *Щомісячне* — повторюється того самого числа щомісяця.\n"
             "Надішліть: `{hint_monthly}` — лише число місяця, без часу.\n"
             "_Приклад:_ `{example_monthly}`\n"
@@ -266,7 +300,7 @@ TEXT: dict[str, dict[str, str]] = {
             "→ Нагадуватиму кожні 2 години. Щоб закрити, відкрийте "
             "📋 Мої нагадування.\n\n"
             "*Команди*\n"
-            "• /remind — створити нагадування (Стандартне, Щомісячне чи Нотатка)\n"
+            "• /remind — створити нагадування (Стандартне, Щотижневе, Щомісячне чи Нотатка)\n"
             "• /list — активні нагадування з часом пінгів (✖ Закрити — видалити)\n"
             "• /timezone `[IANA]` — переглянути чи змінити часовий пояс, напр. `/timezone Europe/Kyiv`\n"
             "• /language — змінити мову (English / Українська)\n"
@@ -287,6 +321,11 @@ TEXT: dict[str, dict[str, str]] = {
             "🔁 Надішліть щомісячне нагадування у форматі:\n`{hint}`\n\n"
             "_Приклад:_ `{example}`\nВоно повторюватиметься цього числа щомісяця — "
             "нагадаю за 48 год, за 24 год і о 09:00 у сам день."
+        ),
+        "new_prompt_weekly": (
+            "📅 Надішліть щотижневе нагадування у форматі:\n`{hint}`\n\n"
+            "_Приклад:_ `{example}`\nВоно повторюватиметься цього дня тижня — нагадаю "
+            "за 24 год і за 2 год до дедлайну, як і у стандартному нагадуванні."
         ),
         "new_prompt_note": (
             "📝 Надішліть нотатку — просто текст, без дати.\n\n"
@@ -309,6 +348,9 @@ TEXT: dict[str, dict[str, str]] = {
         "recur_monthly_desc": (
             "щомісяця {day}-го числа — нагадування за 48 год, за 24 год і о 09:00 "
             "у сам день"
+        ),
+        "recur_weekly_desc": (
+            "щотижня у {weekday} о {time} — нагадування за 24 год і за 2 год до дедлайну"
         ),
         "recur_note_desc": "кожні 2 години",
         "confirm_recurring": (
@@ -360,6 +402,10 @@ TEXT: dict[str, dict[str, str]] = {
         "err_bad_recurrence": (
             "Не вдалося розпізнати число. Вкажіть число місяця (1–31), напр. «5»."
         ),
+        "err_bad_weekly": (
+            "Не вдалося розпізнати день тижня/час. Вкажіть день тижня і час у "
+            "24-годинному форматі, напр. «{example}»."
+        ),
     },
 }
 
@@ -391,6 +437,11 @@ _MONTHS_SHORT = {
     "uk": ["січ", "лют", "бер", "кві", "тра", "чер",
            "лип", "сер", "вер", "жов", "лис", "гру"],
 }
+
+
+def weekday_name(iso_weekday: int, lang: str) -> str:
+    """Localized short weekday name for an ISO weekday (Monday=1 .. Sunday=7)."""
+    return _WEEKDAYS[normalize_lang(lang)][iso_weekday - 1]
 
 
 def format_when(dt_utc: datetime, tz_name: str, lang: str) -> str:
