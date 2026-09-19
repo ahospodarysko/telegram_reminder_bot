@@ -24,7 +24,7 @@ tap rather than type for almost everything.
 - **Language:** stored per user. All messages, menus, and date displays are localized,
   and date *input* accepts month names in either language (`June 21` or `21 червня`).
 - **Timezone:** right after choosing a language on first contact, a new user is asked
-  to set their timezone — tap **📍 Share my location** to detect it automatically
+  to set their timezone — tap **📍 Share your timezone** to detect it automatically
   (resolved offline via `timezonefinder`, no external API call), or type an IANA name
   (e.g. `Europe/Kyiv`) instead. Until then, new accounts default to `DEFAULT_TZ` (or
   the host machine's timezone) — every reminder confirmation shows which zone was used,
@@ -163,7 +163,7 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
 - **📋 My reminders** (or `/list`) → each active reminder with an inline **✖ Close**
   button (for a weekly or monthly one, Close stops the series).
 - **🌍 Timezone** (or `/timezone [IANA]`) → view or change your timezone; tap
-  **📍 Share my location** to detect it automatically, or type an IANA name.
+  **📍 Share your timezone** to detect it automatically, or type an IANA name.
 
 ### Commands
 

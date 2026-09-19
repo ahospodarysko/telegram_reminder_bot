@@ -199,7 +199,7 @@ TEXT: dict[str, dict[str, str]] = {
         "list_autodelete": "🗑 _Deadline passed — auto-deletes {when}._",
         "no_deadline_word": "no deadline",
         # timezone
-        "btn_share_location": "📍 Share my location",
+        "btn_share_location": "📍 Share your timezone",
         "tz_prompt": (
             "🌍 Your timezone is *{tz}*.\n\n"
             "Tap *{btn_share_location}* below to detect it automatically (I only keep "
@@ -411,7 +411,7 @@ TEXT: dict[str, dict[str, str]] = {
         "list_no_pending": "усі надіслані",
         "list_autodelete": "🗑 _Дедлайн минув — буде видалено автоматично {when}._",
         "no_deadline_word": "без дедлайну",
-        "btn_share_location": "📍 Надіслати геолокацію",
+        "btn_share_location": "📍 Поділитися часовим поясом",
         "tz_prompt": (
             "🌍 Ваш часовий пояс — *{tz}*.\n\n"
             "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично (я "
