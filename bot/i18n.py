@@ -205,7 +205,10 @@ TEXT: dict[str, dict[str, str]] = {
             "Tap *{btn_share_location}* below to detect it automatically (I only keep "
             "the timezone name, never the coordinates — the location message itself is "
             "deleted right after), or type an IANA timezone name yourself, e.g. "
-            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`."
+            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`.\n\n"
+            "💡 Before tapping it, make sure Telegram has location access in your "
+            "phone's settings (e.g. \"While Using the App\") — otherwise the button "
+            "won't do anything."
         ),
         "onboarding_tz_prompt": (
             "🌍 One last thing — let's set your timezone, so reminders arrive at the "
@@ -213,7 +216,10 @@ TEXT: dict[str, dict[str, str]] = {
             "Tap *{btn_share_location}* below to detect it automatically (I only keep "
             "the timezone name, never the coordinates — the location message itself is "
             "deleted right after), or type an IANA timezone name yourself, e.g. "
-            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`."
+            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`.\n\n"
+            "💡 Before tapping it, make sure Telegram has location access in your "
+            "phone's settings (e.g. \"While Using the App\") — otherwise the button "
+            "won't do anything."
         ),
         "tz_set": (
             "✅ Timezone set to *{tz}*. New reminders use this zone; existing ones keep "
@@ -417,7 +423,10 @@ TEXT: dict[str, dict[str, str]] = {
             "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично (я "
             "зберігаю лише назву часового поясу, а не координати — саме повідомлення з "
             "геолокацією одразу видаляється), або надішліть назву часового поясу IANA "
-            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`."
+            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`.\n\n"
+            "💡 Перш ніж натиснути, переконайтеся, що Telegram має доступ до "
+            "геолокації в налаштуваннях телефону (напр. «Під час використання "
+            "програми») — інакше кнопка нічого не зробить."
         ),
         "onboarding_tz_prompt": (
             "🌍 Останній крок — налаштуємо ваш часовий пояс, щоб нагадування "
@@ -425,7 +434,10 @@ TEXT: dict[str, dict[str, str]] = {
             "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично (я "
             "зберігаю лише назву часового поясу, а не координати — саме повідомлення з "
             "геолокацією одразу видаляється), або надішліть назву часового поясу IANA "
-            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`."
+            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`.\n\n"
+            "💡 Перш ніж натиснути, переконайтеся, що Telegram має доступ до "
+            "геолокації в налаштуваннях телефону (напр. «Під час використання "
+            "програми») — інакше кнопка нічого не зробить."
         ),
         "tz_set": (
             "✅ Часовий пояс змінено на *{tz}*. Нові нагадування використовують його; "
