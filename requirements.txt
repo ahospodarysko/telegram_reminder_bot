@@ -5,3 +5,7 @@ python-telegram-bot[job-queue]==22.7
 # PostgreSQL driver (v3). The [binary] extra ships prebuilt libpq so no system Postgres
 # dev headers/compiler are needed to install it.
 psycopg[binary]==3.2.3
+
+# Offline lat/lng -> IANA timezone lookup, used by the /timezone "share location" flow.
+# Bundles its own boundary data — no network call, no API key.
+timezonefinder==9.0.0

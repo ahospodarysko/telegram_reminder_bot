@@ -22,7 +22,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import db, i18n, keyboards
+from . import db, geo, i18n, keyboards
 from .config import default_timezone, get_admin_chat_id
 from .scheduling import (
     EXPIRED_RETENTION,
@@ -117,10 +117,19 @@ def _format_hint(lang: str, rtype: str = "basic") -> dict[str, str]:
 # --- /start + language ---------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Capture chat_id on first contact, seed defaults, and show the language picker."""
+    """Capture chat_id on first contact, seed defaults, and show the language picker.
+
+    A brand-new chat_id is flagged so :func:`_choose_language` can follow up with the
+    onboarding timezone step (share location or type it) instead of jumping straight to
+    the main menu — returning users re-running /start just get the language picker.
+    """
     chat_id = update.effective_chat.id
+    conn = _conn(context)
+    is_new = db.get_user(conn, chat_id) is None
     seed_lang = i18n.normalize_lang(getattr(update.effective_user, "language_code", None))
-    db.upsert_user(_conn(context), chat_id, default_timezone(), utcnow(), seed_lang)
+    db.upsert_user(conn, chat_id, default_timezone(), utcnow(), seed_lang)
+    if is_new:
+        context.user_data["new_user"] = True
     await update.message.reply_text(
         i18n.t("en", "choose_language"), reply_markup=keyboards.language_picker()
     )
@@ -135,7 +144,10 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def _choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str) -> None:
-    """Apply a language pick, then greet and (re)show the main menu in that language."""
+    """Apply a language pick, then either start the onboarding timezone step (a
+    brand-new user, per :func:`start`) or greet and (re)show the main menu (an existing
+    user re-picking their language via /language).
+    """
     query = update.callback_query
     chat_id = query.message.chat.id
     db.set_language(_conn(context), chat_id, lang)
@@ -143,6 +155,14 @@ async def _choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE, l
     await query.edit_message_text(
         i18n.t(lang, "language_set", name=i18n.LANGUAGES[lang]), parse_mode=ParseMode.MARKDOWN
     )
+    if context.user_data.pop("new_user", False):
+        await _begin_onboarding_timezone(context, chat_id, lang)
+        return
+    await _send_greeting(context, chat_id, lang)
+
+
+async def _send_greeting(context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str) -> None:
+    """Send the welcome/greeting message with the main menu restored."""
     tz_name = _user_tz(context, chat_id)
     await context.bot.send_message(
         chat_id=chat_id,
@@ -152,16 +172,36 @@ async def _choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE, l
     )
 
 
+async def _begin_onboarding_timezone(context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str) -> None:
+    """Arm the timezone flow as the last onboarding step for a brand-new user."""
+    context.user_data["awaiting_timezone"] = True
+    context.user_data["onboarding_timezone"] = True
+    context.user_data.pop("awaiting_reminder", None)
+    context.user_data.pop("reminder_type", None)
+    context.user_data.pop("awaiting_support", None)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=i18n.t(lang, "onboarding_tz_prompt", btn_share_location=i18n.t(lang, "btn_share_location")),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboards.location_or_manual(lang),
+    )
+
+
 # --- new reminder flow ---------------------------------------------------------------
 
 def _show_type_picker(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> tuple[str, object]:
-    """Clear any in-progress flow and return the (text, keyboard) for the type chooser."""
+    """Clear any in-progress flow and return the (text, keyboard) for the type chooser.
+
+    The text leads with the timezone reminders will use, so a wrong default (see
+    :func:`bot.config.default_timezone`) is caught before creating one, not after.
+    """
     context.user_data.pop("awaiting_timezone", None)
     context.user_data.pop("awaiting_reminder", None)
     context.user_data.pop("reminder_type", None)
     context.user_data.pop("awaiting_support", None)
     lang = _user_lang(context, chat_id)
-    return i18n.t(lang, "choose_reminder_type"), keyboards.reminder_type_picker(lang)
+    tz_name = _user_tz(context, chat_id)
+    return i18n.t(lang, "choose_reminder_type", tz=tz_name), keyboards.reminder_type_picker(lang)
 
 
 def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtype: str) -> str:
@@ -179,7 +219,7 @@ def _begin_typed_reminder(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rtyp
 async def new_reminder_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the reminder-type chooser (via /remind or the menu button)."""
     text, keyboard = _show_type_picker(context, update.effective_chat.id)
-    await update.message.reply_text(text, reply_markup=keyboard)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
 
 async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
@@ -206,7 +246,7 @@ async def _create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         context.user_data.pop("reminder_type", None)
         await update.message.reply_text(
             i18n.t(lang, "confirm_note", note=note,
-                   first=i18n.format_when(first, tz_name, lang)),
+                   first=i18n.format_when(first, tz_name, lang), tz=tz_name),
             reply_markup=keyboards.new_reminder_button(lang),
         )
         return
@@ -300,28 +340,115 @@ async def timezone_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def _prompt_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Prompt for a timezone: share location (auto-detect) or type an IANA name.
+
+    Explicitly invoking /timezone always clears any pending onboarding step — this is
+    an ordinary settings change, not the first-run flow (see :func:`_begin_onboarding_timezone`).
+    """
     chat_id = update.effective_chat.id
     lang = _user_lang(context, chat_id)
     context.user_data["awaiting_timezone"] = True
+    context.user_data.pop("onboarding_timezone", None)
     context.user_data.pop("awaiting_reminder", None)
     context.user_data.pop("reminder_type", None)
     context.user_data.pop("awaiting_support", None)
     await update.message.reply_text(
-        i18n.t(lang, "tz_prompt", tz=_user_tz(context, chat_id)), parse_mode=ParseMode.MARKDOWN
+        i18n.t(lang, "tz_prompt", tz=_user_tz(context, chat_id),
+               btn_share_location=i18n.t(lang, "btn_share_location")),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboards.location_or_manual(lang),
+    )
+
+
+async def skip_timezone_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The "Skip for now" button on the timezone prompt: leave the timezone unchanged
+    and restore the main menu — the escape hatch out of a keyboard that otherwise only
+    offers "share location", finishing onboarding with the full greeting if that's what
+    this was (see :func:`_begin_onboarding_timezone`).
+    """
+    chat_id = update.effective_chat.id
+    lang = _user_lang(context, chat_id)
+    context.user_data.pop("awaiting_timezone", None)
+    if context.user_data.pop("onboarding_timezone", False):
+        await _send_greeting(context, chat_id, lang)
+        return
+    await update.message.reply_text(
+        i18n.t(lang, "tz_cancelled", tz=_user_tz(context, chat_id)),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboards.main_menu(lang),
+    )
+
+
+async def _apply_timezone(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str, tz_name: str, reply
+) -> None:
+    """Persist ``tz_name`` and send the completion message, restoring the main menu
+    keyboard (the timezone prompt replaced it with the share-location keyboard).
+
+    Finishes the onboarding flow with the full greeting when this timezone was set as
+    the last step of a brand-new user's setup (see :func:`_begin_onboarding_timezone`);
+    otherwise it's an ordinary settings change, so just confirms the new zone.
+    ``reply`` is an ``async def(text, **kwargs)`` bound to the right chat (e.g.
+    ``update.message.reply_text``), so this works from both the free-text and the
+    location handlers.
+    """
+    db.set_timezone(_conn(context), chat_id, tz_name)
+    context.user_data.pop("awaiting_timezone", None)
+    if context.user_data.pop("onboarding_timezone", False):
+        await reply(
+            i18n.t(lang, "greeting", tz=tz_name, btn_new=i18n.t(lang, "btn_new")),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboards.main_menu(lang),
+        )
+        return
+    await reply(
+        i18n.t(lang, "tz_set", tz=tz_name),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboards.main_menu(lang),
     )
 
 
 async def _set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_name: str) -> None:
-    lang = _user_lang(context, update.effective_chat.id)
+    chat_id = update.effective_chat.id
+    lang = _user_lang(context, chat_id)
     if not is_valid_timezone(tz_name):
         await update.message.reply_text(
             i18n.t(lang, "tz_invalid", tz=tz_name), parse_mode=ParseMode.MARKDOWN
         )
         return
-    db.set_timezone(_conn(context), update.effective_chat.id, tz_name)
-    context.user_data.pop("awaiting_timezone", None)
-    await update.message.reply_text(
-        i18n.t(lang, "tz_set", tz=tz_name), parse_mode=ParseMode.MARKDOWN
+    await _apply_timezone(context, chat_id, lang, tz_name, update.message.reply_text)
+
+
+async def location_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle a shared location during the timezone flow: resolve it to an IANA
+    timezone and apply it, same as typing one manually. Ignored outside that flow, so a
+    location shared unprompted (e.g. from an old keyboard) does nothing.
+
+    The coordinates are only ever used for this one lookup — never stored — and the
+    location message itself is deleted right after reading it (bots may delete a user's
+    own messages in private chats), so the exact-location map preview Telegram renders
+    for it doesn't linger in the chat; only the resolved timezone name remains visible.
+    """
+    if not context.user_data.get("awaiting_timezone"):
+        return
+    chat_id = update.effective_chat.id
+    lang = _user_lang(context, chat_id)
+    loc = update.message.location
+    tz_name = geo.timezone_from_location(loc.latitude, loc.longitude)
+    try:
+        await update.message.delete()
+    except Exception:  # noqa: BLE001 - deletion is a courtesy; never block on it.
+        logger.warning("Could not delete location message in chat %s", chat_id)
+    if tz_name is None or not is_valid_timezone(tz_name):
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=i18n.t(lang, "tz_location_not_found"),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    await _apply_timezone(
+        context, chat_id, lang, tz_name,
+        lambda text, **kw: context.bot.send_message(chat_id=chat_id, text=text, **kw),
     )
 
 
@@ -461,7 +588,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if action == "new":
         text, keyboard = _show_type_picker(context, chat_id)
         await query.answer()
-        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+        await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN,
+                                       reply_markup=keyboard)
         return
 
     if action == "newtype":
@@ -514,6 +642,8 @@ def register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_list")), list_reminders))
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_timezone")), timezone_button))
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_help")), help_command))
+    application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_skip_timezone")), skip_timezone_prompt))
 
+    application.add_handler(MessageHandler(filters.LOCATION, location_received))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, free_text))
     application.add_handler(CallbackQueryHandler(on_callback))
