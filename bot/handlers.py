@@ -360,6 +360,25 @@ async def _prompt_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+async def skip_timezone_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The "Skip for now" button on the timezone prompt: leave the timezone unchanged
+    and restore the main menu — the escape hatch out of a keyboard that otherwise only
+    offers "share location", finishing onboarding with the full greeting if that's what
+    this was (see :func:`_begin_onboarding_timezone`).
+    """
+    chat_id = update.effective_chat.id
+    lang = _user_lang(context, chat_id)
+    context.user_data.pop("awaiting_timezone", None)
+    if context.user_data.pop("onboarding_timezone", False):
+        await _send_greeting(context, chat_id, lang)
+        return
+    await update.message.reply_text(
+        i18n.t(lang, "tz_cancelled", tz=_user_tz(context, chat_id)),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboards.main_menu(lang),
+    )
+
+
 async def _apply_timezone(
     context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str, tz_name: str, reply
 ) -> None:
@@ -623,6 +642,7 @@ def register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_list")), list_reminders))
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_timezone")), timezone_button))
     application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_help")), help_command))
+    application.add_handler(MessageHandler(filters.Text(i18n.all_labels("btn_skip_timezone")), skip_timezone_prompt))
 
     application.add_handler(MessageHandler(filters.LOCATION, location_received))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, free_text))

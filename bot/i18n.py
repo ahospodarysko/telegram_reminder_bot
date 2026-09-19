@@ -230,6 +230,10 @@ TEXT: dict[str, dict[str, str]] = {
             "⚠️ Couldn't work out a timezone from that location — please type an IANA "
             "timezone name instead, e.g. `Europe/Kyiv`."
         ),
+        "btn_skip_timezone": "⏭ Skip for now",
+        "tz_cancelled": (
+            "↩️ Kept your timezone as *{tz}*. Change it anytime with /timezone."
+        ),
         # generic
         "not_recognized": (
             "I didn't recognise that. Tap a button below, or use /help.\n\n"
@@ -447,6 +451,10 @@ TEXT: dict[str, dict[str, str]] = {
         "tz_location_not_found": (
             "⚠️ Не вдалося визначити часовий пояс за цією геолокацією — надішліть "
             "назву часового поясу IANA самі, напр. `Europe/Kyiv`."
+        ),
+        "btn_skip_timezone": "⏭ Пропустити",
+        "tz_cancelled": (
+            "↩️ Залишив часовий пояс *{tz}*. Змінити можна будь-коли командою /timezone."
         ),
         "not_recognized": (
             "Не зрозумів. Натисніть кнопку нижче або скористайтесь /help.\n\n"

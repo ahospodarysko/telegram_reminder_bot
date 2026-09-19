@@ -62,9 +62,16 @@ def reminder_cancel_action(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
 def location_or_manual(lang: str) -> ReplyKeyboardMarkup:
     """Reply keyboard offering to share location (auto-detects the timezone) — the user
     can also just type an IANA name instead, which the free-text handler still accepts.
+
+    A second row lets them back out to the main menu without setting anything — this
+    keyboard replaces the persistent main menu, so without it there'd be no way back to
+    "New reminder"/"Help" short of typing a valid timezone.
     """
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(i18n.t(lang, "btn_share_location"), request_location=True)]],
+        [
+            [KeyboardButton(i18n.t(lang, "btn_share_location"), request_location=True)],
+            [KeyboardButton(i18n.t(lang, "btn_skip_timezone"))],
+        ],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
