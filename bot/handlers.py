@@ -404,6 +404,11 @@ async def location_received(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Handle a shared location during the timezone flow: resolve it to an IANA
     timezone and apply it, same as typing one manually. Ignored outside that flow, so a
     location shared unprompted (e.g. from an old keyboard) does nothing.
+
+    The coordinates are only ever used for this one lookup — never stored — and the
+    location message itself is deleted right after reading it (bots may delete a user's
+    own messages in private chats), so the exact-location map preview Telegram renders
+    for it doesn't linger in the chat; only the resolved timezone name remains visible.
     """
     if not context.user_data.get("awaiting_timezone"):
         return
@@ -411,12 +416,21 @@ async def location_received(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = _user_lang(context, chat_id)
     loc = update.message.location
     tz_name = geo.timezone_from_location(loc.latitude, loc.longitude)
+    try:
+        await update.message.delete()
+    except Exception:  # noqa: BLE001 - deletion is a courtesy; never block on it.
+        logger.warning("Could not delete location message in chat %s", chat_id)
     if tz_name is None or not is_valid_timezone(tz_name):
-        await update.message.reply_text(
-            i18n.t(lang, "tz_location_not_found"), parse_mode=ParseMode.MARKDOWN
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=i18n.t(lang, "tz_location_not_found"),
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
-    await _apply_timezone(context, chat_id, lang, tz_name, update.message.reply_text)
+    await _apply_timezone(
+        context, chat_id, lang, tz_name,
+        lambda text, **kw: context.bot.send_message(chat_id=chat_id, text=text, **kw),
+    )
 
 
 # --- /help ---------------------------------------------------------------------------

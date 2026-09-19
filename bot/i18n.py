@@ -202,16 +202,18 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_share_location": "📍 Share my location",
         "tz_prompt": (
             "🌍 Your timezone is *{tz}*.\n\n"
-            "Tap *{btn_share_location}* below to detect it automatically, or type an "
-            "IANA timezone name yourself, e.g. `Europe/Kyiv`, `America/New_York`, or "
-            "`Asia/Tokyo`."
+            "Tap *{btn_share_location}* below to detect it automatically (I only keep "
+            "the timezone name, never the coordinates — the location message itself is "
+            "deleted right after), or type an IANA timezone name yourself, e.g. "
+            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`."
         ),
         "onboarding_tz_prompt": (
             "🌍 One last thing — let's set your timezone, so reminders arrive at the "
             "right time.\n\n"
-            "Tap *{btn_share_location}* below to detect it automatically, or type an "
-            "IANA timezone name yourself, e.g. `Europe/Kyiv`, `America/New_York`, or "
-            "`Asia/Tokyo`."
+            "Tap *{btn_share_location}* below to detect it automatically (I only keep "
+            "the timezone name, never the coordinates — the location message itself is "
+            "deleted right after), or type an IANA timezone name yourself, e.g. "
+            "`Europe/Kyiv`, `America/New_York`, or `Asia/Tokyo`."
         ),
         "tz_set": (
             "✅ Timezone set to *{tz}*. New reminders use this zone; existing ones keep "
@@ -412,16 +414,18 @@ TEXT: dict[str, dict[str, str]] = {
         "btn_share_location": "📍 Надіслати геолокацію",
         "tz_prompt": (
             "🌍 Ваш часовий пояс — *{tz}*.\n\n"
-            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично, або "
-            "надішліть назву часового поясу IANA самі, напр. `Europe/Kyiv`, "
-            "`America/New_York` або `Asia/Tokyo`."
+            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично (я "
+            "зберігаю лише назву часового поясу, а не координати — саме повідомлення з "
+            "геолокацією одразу видаляється), або надішліть назву часового поясу IANA "
+            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`."
         ),
         "onboarding_tz_prompt": (
             "🌍 Останній крок — налаштуємо ваш часовий пояс, щоб нагадування "
             "приходили вчасно.\n\n"
-            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично, або "
-            "надішліть назву часового поясу IANA самі, напр. `Europe/Kyiv`, "
-            "`America/New_York` або `Asia/Tokyo`."
+            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично (я "
+            "зберігаю лише назву часового поясу, а не координати — саме повідомлення з "
+            "геолокацією одразу видаляється), або надішліть назву часового поясу IANA "
+            "самі, напр. `Europe/Kyiv`, `America/New_York` або `Asia/Tokyo`."
         ),
         "tz_set": (
             "✅ Часовий пояс змінено на *{tz}*. Нові нагадування використовують його; "
