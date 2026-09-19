@@ -90,7 +90,11 @@ TEXT: dict[str, dict[str, str]] = {
             "reminders, plus quick notes that nudge you every 2 hours until you close "
             "them.\n"
             "Reminders that would land at night (22:00–08:00) are moved to 08:00. All "
-            "times use *your* timezone and a 24-hour clock.\n\n"
+            "times use *your* timezone and a 24-hour clock — every reminder's "
+            "confirmation shows which timezone was used; if it's wrong (new accounts "
+            "default to a fixed timezone, not your actual location), fix it with "
+            "/timezone (share your location to detect it automatically, or type an "
+            "IANA name) and create the reminder again.\n\n"
             "*Reminder types* — tap ➕ New reminder (or /remind), then choose:\n\n"
             "🔔 *Basic* — one-time, for a specific date.\n"
             "Send: `{hint}`\n"
@@ -117,7 +121,8 @@ TEXT: dict[str, dict[str, str]] = {
             "*Commands*\n"
             "• /remind — create a reminder (Basic, Weekly, Monthly, or Note)\n"
             "• /list — active reminders with their upcoming pings (✖ Close removes one)\n"
-            "• /timezone `[IANA]` — view or set your timezone, e.g. `/timezone Europe/Kyiv`\n"
+            "• /timezone `[IANA]` — view or set your timezone: share your location to "
+            "detect it, or type an IANA name, e.g. `/timezone Europe/Kyiv`\n"
             "• /language — switch English / Українська\n"
             "• /support — send a message to support\n"
             "• /help — this message"
@@ -129,7 +134,10 @@ TEXT: dict[str, dict[str, str]] = {
         "support_error": "⚠️ Couldn't send your message right now. Please try again later.",
         "support_reply": "💬 Support:\n\n{message}",
         # new reminder
-        "choose_reminder_type": "🆕 Choose reminder type:",
+        "choose_reminder_type": (
+            "🌍 Reminders use your timezone: *{tz}* (wrong? send /timezone)\n\n"
+            "🆕 Choose reminder type:"
+        ),
         "new_prompt": (
             "📝 Send your reminder in this format:\n`{hint}`\n\n_Example:_ `{example}`"
         ),
@@ -151,15 +159,18 @@ TEXT: dict[str, dict[str, str]] = {
         "confirm_note": (
             "✅ Got it: “{note}”\n"
             "📝 I'll remind you every 2 hours — first at {first}.\n"
-            "Go to 📋 My reminders to close it."
+            "Go to 📋 My reminders to close it.\n"
+            "🌍 Timezone: {tz} — wrong? Change it with /timezone."
         ),
         "err_empty_note_text": "The note is empty — send just the text you want to remember.",
         "confirm_ok": (
-            "✅ Got it: “{note}”\nDue: {due}\nI'll remind you at: {pings}"
+            "✅ Got it: “{note}”\nDue: {due}\nI'll remind you at: {pings}\n"
+            "🌍 Timezone: {tz} — wrong? Change it with /timezone."
         ),
         "confirm_none": (
             "✅ Got it: “{note}”\nDue: {due}\n"
-            "⚠️ That time has already passed — no reminders scheduled."
+            "⚠️ That time has already passed — no reminders scheduled.\n"
+            "🌍 Timezone: {tz} — wrong? Change it with /timezone."
         ),
         # recurring
         "recur_monthly_desc": (
@@ -170,10 +181,12 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "recur_note_desc": "every 2 hours",
         "confirm_recurring": (
-            "✅ Got it: “{note}”\n🔁 Repeats {rule}"
+            "✅ Got it: “{note}”\n🔁 Repeats {rule}\n"
+            "🌍 Timezone: {tz} — wrong? Change it with /timezone."
         ),
         "confirm_recurring_none": (
-            "✅ Got it: “{note}”\n🔁 Repeats {rule}"
+            "✅ Got it: “{note}”\n🔁 Repeats {rule}\n"
+            "🌍 Timezone: {tz} — wrong? Change it with /timezone."
         ),
         # list
         "list_header": "📋 You have {count} active reminder(s):",
@@ -186,16 +199,29 @@ TEXT: dict[str, dict[str, str]] = {
         "list_autodelete": "🗑 _Deadline passed — auto-deletes {when}._",
         "no_deadline_word": "no deadline",
         # timezone
+        "btn_share_location": "📍 Share my location",
         "tz_prompt": (
             "🌍 Your timezone is *{tz}*.\n\n"
-            "To change it, send an IANA timezone name, e.g. `Europe/Kyiv`, "
-            "`America/New_York`, or `Asia/Tokyo`."
+            "Tap *{btn_share_location}* below to detect it automatically, or type an "
+            "IANA timezone name yourself, e.g. `Europe/Kyiv`, `America/New_York`, or "
+            "`Asia/Tokyo`."
+        ),
+        "onboarding_tz_prompt": (
+            "🌍 One last thing — let's set your timezone, so reminders arrive at the "
+            "right time.\n\n"
+            "Tap *{btn_share_location}* below to detect it automatically, or type an "
+            "IANA timezone name yourself, e.g. `Europe/Kyiv`, `America/New_York`, or "
+            "`Asia/Tokyo`."
         ),
         "tz_set": (
             "✅ Timezone set to *{tz}*. New reminders use this zone; existing ones keep "
             "their original times."
         ),
         "tz_invalid": "⚠️ {tz} isn't a valid IANA timezone. Try e.g. `Europe/Kyiv`.",
+        "tz_location_not_found": (
+            "⚠️ Couldn't work out a timezone from that location — please type an IANA "
+            "timezone name instead, e.g. `Europe/Kyiv`."
+        ),
         # generic
         "not_recognized": (
             "I didn't recognise that. Tap a button below, or use /help.\n\n"
@@ -274,7 +300,12 @@ TEXT: dict[str, dict[str, str]] = {
             "Допоможу нічого не забути — разові, щотижневі та щомісячні нагадування, "
             "а також нотатки, що нагадують кожні 2 години, доки ви їх не закриєте.\n"
             "Нагадування, що припадають на ніч (22:00–08:00), переносяться на 08:00. "
-            "Усі часи — у *вашому* часовому поясі, формат 24-годинний.\n\n"
+            "Усі часи — у *вашому* часовому поясі, формат 24-годинний — підтвердження "
+            "кожного нагадування показує, який часовий пояс використано; якщо він "
+            "неправильний (нові акаунти отримують фіксований часовий пояс за "
+            "замовчуванням, а не ваше реальне місцезнаходження), змініть його "
+            "командою /timezone (надішліть геолокацію, щоб визначити автоматично, або "
+            "введіть назву IANA) і створіть нагадування знову.\n\n"
             "*Типи нагадувань* — натисніть ➕ Нове нагадування (або /remind) і оберіть:\n\n"
             "🔔 *Стандартне* — разове, на конкретну дату.\n"
             "Надішліть: `{hint}`\n"
@@ -302,7 +333,8 @@ TEXT: dict[str, dict[str, str]] = {
             "*Команди*\n"
             "• /remind — створити нагадування (Стандартне, Щотижневе, Щомісячне чи Нотатка)\n"
             "• /list — активні нагадування з часом пінгів (✖ Закрити — видалити)\n"
-            "• /timezone `[IANA]` — переглянути чи змінити часовий пояс, напр. `/timezone Europe/Kyiv`\n"
+            "• /timezone `[IANA]` — переглянути чи змінити часовий пояс: надішліть "
+            "геолокацію або введіть назву IANA, напр. `/timezone Europe/Kyiv`\n"
             "• /language — змінити мову (English / Українська)\n"
             "• /support — написати в підтримку\n"
             "• /help — це повідомлення"
@@ -313,7 +345,11 @@ TEXT: dict[str, dict[str, str]] = {
         "support_sent": "✅ Надіслано — дякуємо, ми скоро відповімо.",
         "support_error": "⚠️ Не вдалося надіслати повідомлення. Спробуйте пізніше.",
         "support_reply": "💬 Підтримка:\n\n{message}",
-        "choose_reminder_type": "🆕 Оберіть тип нагадування:",
+        "choose_reminder_type": (
+            "🌍 Нагадування використовують ваш часовий пояс: *{tz}* (не той? "
+            "надішліть /timezone)\n\n"
+            "🆕 Оберіть тип нагадування:"
+        ),
         "new_prompt": (
             "📝 Надішліть нагадування у такому форматі:\n`{hint}`\n\n_Приклад:_ `{example}`"
         ),
@@ -335,15 +371,18 @@ TEXT: dict[str, dict[str, str]] = {
         "confirm_note": (
             "✅ Прийнято: «{note}»\n"
             "📝 Нагадуватиму кожні 2 години — перше о {first}.\n"
-            "Щоб закрити, відкрийте 📋 Мої нагадування."
+            "Щоб закрити, відкрийте 📋 Мої нагадування.\n"
+            "🌍 Часовий пояс: {tz} — не той? Змініть командою /timezone."
         ),
         "err_empty_note_text": "Нотатка порожня — надішліть просто текст, який треба запам'ятати.",
         "confirm_ok": (
-            "✅ Прийнято: «{note}»\nДедлайн: {due}\nНагадаю: {pings}"
+            "✅ Прийнято: «{note}»\nДедлайн: {due}\nНагадаю: {pings}\n"
+            "🌍 Часовий пояс: {tz} — не той? Змініть командою /timezone."
         ),
         "confirm_none": (
             "✅ Прийнято: «{note}»\nДедлайн: {due}\n"
-            "⚠️ Цей час уже минув — нагадування не заплановані."
+            "⚠️ Цей час уже минув — нагадування не заплановані.\n"
+            "🌍 Часовий пояс: {tz} — не той? Змініть командою /timezone."
         ),
         "recur_monthly_desc": (
             "щомісяця {day}-го числа — нагадування за 48 год, за 24 год і о 09:00 "
@@ -354,10 +393,12 @@ TEXT: dict[str, dict[str, str]] = {
         ),
         "recur_note_desc": "кожні 2 години",
         "confirm_recurring": (
-            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}"
+            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}\n"
+            "🌍 Часовий пояс: {tz} — не той? Змініть командою /timezone."
         ),
         "confirm_recurring_none": (
-            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}"
+            "✅ Прийнято: «{note}»\n🔁 Повторюється {rule}\n"
+            "🌍 Часовий пояс: {tz} — не той? Змініть командою /timezone."
         ),
         "list_header": "📋 У вас активних нагадувань: {count}",
         "list_empty": "У вас немає активних нагадувань. Натисніть {btn}, щоб створити.",
@@ -368,9 +409,18 @@ TEXT: dict[str, dict[str, str]] = {
         "list_no_pending": "усі надіслані",
         "list_autodelete": "🗑 _Дедлайн минув — буде видалено автоматично {when}._",
         "no_deadline_word": "без дедлайну",
+        "btn_share_location": "📍 Надіслати геолокацію",
         "tz_prompt": (
             "🌍 Ваш часовий пояс — *{tz}*.\n\n"
-            "Щоб змінити, надішліть назву часового поясу IANA, напр. `Europe/Kyiv`, "
+            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично, або "
+            "надішліть назву часового поясу IANA самі, напр. `Europe/Kyiv`, "
+            "`America/New_York` або `Asia/Tokyo`."
+        ),
+        "onboarding_tz_prompt": (
+            "🌍 Останній крок — налаштуємо ваш часовий пояс, щоб нагадування "
+            "приходили вчасно.\n\n"
+            "Натисніть *{btn_share_location}* нижче, щоб визначити автоматично, або "
+            "надішліть назву часового поясу IANA самі, напр. `Europe/Kyiv`, "
             "`America/New_York` або `Asia/Tokyo`."
         ),
         "tz_set": (
@@ -378,6 +428,10 @@ TEXT: dict[str, dict[str, str]] = {
             "наявні зберігають свій час."
         ),
         "tz_invalid": "⚠️ {tz} — недійсний часовий пояс IANA. Спробуйте напр. `Europe/Kyiv`.",
+        "tz_location_not_found": (
+            "⚠️ Не вдалося визначити часовий пояс за цією геолокацією — надішліть "
+            "назву часового поясу IANA самі, напр. `Europe/Kyiv`."
+        ),
         "not_recognized": (
             "Не зрозумів. Натисніть кнопку нижче або скористайтесь /help.\n\n"
             "Щоб додати нагадування: натисніть {btn} або надішліть `{hint}`."

@@ -23,8 +23,13 @@ tap rather than type for almost everything.
   you) and shows a language picker (English / Українська). No phone number is requested.
 - **Language:** stored per user. All messages, menus, and date displays are localized,
   and date *input* accepts month names in either language (`June 21` or `21 червня`).
-- **Timezone:** new users default to the host machine's timezone (or `DEFAULT_TZ`).
-  Change yours anytime with `/timezone`.
+- **Timezone:** right after choosing a language on first contact, a new user is asked
+  to set their timezone — tap **📍 Share my location** to detect it automatically
+  (resolved offline via `timezonefinder`, no external API call), or type an IANA name
+  (e.g. `Europe/Kyiv`) instead. Until then, new accounts default to `DEFAULT_TZ` (or
+  the host machine's timezone) — every reminder confirmation shows which zone was used,
+  so a wrong default is easy to catch. Change it anytime with `/timezone`, which offers
+  the same share-location-or-type choice.
 - **Weekly reminders:** pick *Weekly* when creating a reminder and give a weekday and
   time (e.g. `Team sync @ Saturday 11:00`). It pings **24h and 2h before** the
   deadline, same as a one-time reminder (here: Friday 11:00 and Saturday 09:00). The
@@ -58,6 +63,7 @@ tap rather than type for almost everything.
 bot/
   config.py      # BOT_TOKEN + default timezone resolution
   db.py          # PostgreSQL schema + CRUD (source of truth)
+  geo.py         # offline lat/lng -> IANA timezone lookup (the /timezone share-location flow)
   scheduling.py  # pure time logic: offsets, skip-past, tz conversion, parsing, weekly/monthly recurrence
   i18n.py        # English + Ukrainian strings, localized dates, button label sets
   keyboards.py   # reply + inline keyboards (language-aware)
@@ -156,7 +162,8 @@ Open the bot in Telegram and tap **START**. You'll get a menu:
   The bot echoes how it understood the input and lists every scheduled ping time.
 - **📋 My reminders** (or `/list`) → each active reminder with an inline **✖ Close**
   button (for a weekly or monthly one, Close stops the series).
-- **🌍 Timezone** (or `/timezone [IANA]`) → view or change your timezone.
+- **🌍 Timezone** (or `/timezone [IANA]`) → view or change your timezone; tap
+  **📍 Share my location** to detect it automatically, or type an IANA name.
 
 ### Commands
 
@@ -186,6 +193,7 @@ tables before each test.
 - Python 3.11+ (developed on 3.13)
 - [`python-telegram-bot`](https://python-telegram-bot.org/) (async; `[job-queue]` extra)
 - PostgreSQL via `psycopg` (v3); `datetime` + `zoneinfo` for timezones
+- `timezonefinder` for offline lat/lng → IANA timezone lookup (the /timezone share-location flow)
 - Long-polling (`getUpdates`) — works behind NAT, no public endpoint
 
 ## License

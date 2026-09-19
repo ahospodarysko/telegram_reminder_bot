@@ -59,6 +59,17 @@ def reminder_cancel_action(reminder_id: int, lang: str) -> InlineKeyboardMarkup:
     )
 
 
+def location_or_manual(lang: str) -> ReplyKeyboardMarkup:
+    """Reply keyboard offering to share location (auto-detects the timezone) — the user
+    can also just type an IANA name instead, which the free-text handler still accepts.
+    """
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(i18n.t(lang, "btn_share_location"), request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
 def reminder_type_picker(lang: str) -> InlineKeyboardMarkup:
     """Inline buttons to choose a reminder type (callback
     ``newtype:monthly|weekly|basic|note``)."""
